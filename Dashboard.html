@@ -572,6 +572,18 @@
 
 
     function normalizeDashboardPayload(data) {
+      if (typeof data === 'string') {
+        try {
+          data = JSON.parse(data);
+        } catch (error) {
+          return {
+            ok: false,
+            message: 'サーバーから返ったデータを解析できませんでした。\n\n' +
+              (error && error.message ? error.message : error)
+          };
+        }
+      }
+
       if (!data || typeof data !== 'object') {
         return { ok: false, message: 'サーバーから有効なデータが返っていません。' };
       }

@@ -2816,10 +2816,10 @@ HTMLダッシュボード用データ取得
 */
 function getHtmlDashboardData() {
   const startedAt = new Date();
+  let payload;
   try {
-    const data = getHtmlDashboardDataCore_();
-    data.serverElapsedMs = new Date().getTime() - startedAt.getTime();
-    return data;
+    payload = getHtmlDashboardDataCore_();
+    payload.serverElapsedMs = new Date().getTime() - startedAt.getTime();
   } catch (error) {
     let settings = {};
     let errorCount = 0;
@@ -2833,7 +2833,7 @@ function getHtmlDashboardData() {
     } catch (e) {
       errorCount = 0;
     }
-    return {
+    payload = {
       ok: false,
       message: 'ダッシュボードデータ作成時にエラーが発生しました。\n\n' +
         (error && error.message ? error.message : String(error)),
@@ -2843,6 +2843,11 @@ function getHtmlDashboardData() {
       serverElapsedMs: new Date().getTime() - startedAt.getTime()
     };
   }
+
+  // google.script.run can silently return an empty value when a complex server-side
+  // object contains a value that cannot be marshalled to the iframe.  Serialize the
+  // payload explicitly so the dashboard always receives a deterministic response.
+  return JSON.stringify(payload);
 }
 
 function getHtmlDashboardDataCore_() {
