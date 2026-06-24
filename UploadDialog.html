@@ -108,6 +108,25 @@
   </div>
 
   <script>
+
+    const REQUIRED_HEADERS = [
+      '部署名',
+      '社員コード',
+      '社員名',
+      '日付',
+      '曜日',
+      '残業申請:申請対象社員コード',
+      '残業申請:申請対象社員名',
+      '残業申請:申請種類',
+      '残業申請:ステータス',
+      '残業申請:申請日時',
+      '残業申請:申請者',
+      '残業申請:承認日時',
+      '残業申請:承認者',
+      '残業申請:承認却下コメント',
+      '残業申請:内容',
+      '残業申請:備考'
+    ];
     function startImport() {
       const fileInput = document.getElementById('csvFile');
       const encoding = document.getElementById('encoding').value;
@@ -205,28 +224,20 @@
         };
       }
 
-      const utf8Text = decodeWith('utf-8', buffer);
-      if (looksLikeTeamSpiritCsv(utf8Text)) {
-        return {
-          text: utf8Text,
-          encoding: 'UTF-8(auto)'
-        };
-      }
+      const candidates = [
+        { text: decodeWith('utf-8', buffer), encoding: 'UTF-8(auto)' },
+        { text: decodeWith('shift_jis', buffer), encoding: 'Shift_JIS(auto)' }
+      ].map(function(candidate) {
+        return Object.assign(candidate, { quality: inspectCsvDecodeQuality(candidate.text) });
+      });
 
-      const sjisText = decodeWith('shift_jis', buffer);
-      if (looksLikeTeamSpiritCsv(sjisText)) {
-        return {
-          text: sjisText,
-          encoding: 'Shift_JIS(auto)'
-        };
-      }
-
-      const utf8Bad = countReplacementChars(utf8Text);
-      const sjisBad = countReplacementChars(sjisText);
+      candidates.sort(compareDecodeCandidates);
 
       return {
-        text: sjisBad <= utf8Bad ? sjisText : utf8Text,
-        encoding: sjisBad <= utf8Bad ? 'Shift_JIS(auto fallback)' : 'UTF-8(auto fallback)'
+        text: candidates[0].text,
+        encoding: candidates[0].quality.requiredHeaderMatches >= REQUIRED_HEADERS.length
+          ? candidates[0].encoding
+          : candidates[0].encoding + ' fallback'
       };
     }
 
@@ -239,6 +250,62 @@
         }
         throw error;
       }
+    }
+
+    function inspectCsvDecodeQuality(text) {
+      const headers = parseCsvHeaderLine(text).map(normalizeHeader);
+      return {
+        requiredHeaderMatches: REQUIRED_HEADERS
+          .map(normalizeHeader)
+          .filter(function(required) { return headers.indexOf(required) !== -1; })
+          .length,
+        looksLikeTeamSpiritCsv: looksLikeTeamSpiritCsv(text),
+        replacementChars: countReplacementChars(text)
+      };
+    }
+
+    function compareDecodeCandidates(a, b) {
+      if (a.quality.requiredHeaderMatches !== b.quality.requiredHeaderMatches) {
+        return b.quality.requiredHeaderMatches - a.quality.requiredHeaderMatches;
+      }
+      if (a.quality.looksLikeTeamSpiritCsv !== b.quality.looksLikeTeamSpiritCsv) {
+        return a.quality.looksLikeTeamSpiritCsv ? -1 : 1;
+      }
+      return a.quality.replacementChars - b.quality.replacementChars;
+    }
+
+    function parseCsvHeaderLine(text) {
+      const firstLine = String(text || '').replace(/^\uFEFF/, '').split(/\r\n|\n|\r/)[0] || '';
+      const cells = [];
+      let current = '';
+      let inQuotes = false;
+
+      for (let i = 0; i < firstLine.length; i++) {
+        const ch = firstLine.charAt(i);
+        const next = firstLine.charAt(i + 1);
+
+        if (ch === '"' && inQuotes && next === '"') {
+          current += '"';
+          i++;
+        } else if (ch === '"') {
+          inQuotes = !inQuotes;
+        } else if (ch === ',' && !inQuotes) {
+          cells.push(current);
+          current = '';
+        } else {
+          current += ch;
+        }
+      }
+
+      cells.push(current);
+      return cells;
+    }
+
+    function normalizeHeader(header) {
+      return String(header || '')
+        .replace(/\s/g, '')
+        .replace(/：/g, ':')
+        .trim();
     }
 
     function looksLikeTeamSpiritCsv(text) {

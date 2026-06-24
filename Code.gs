@@ -73,6 +73,8 @@ const TS_CONFIG = {
 
 // 部署判定で使う正規表現は一度だけコンパイルする。
 const REGEX_SALES_DEPT = /営業所|出張所|エリア/;
+const RAW_TEXT_COLUMN_COUNT = TS_CONFIG.REQUIRED_HEADERS.length;
+const DANGEROUS_SHEET_TEXT_PREFIX = /^[=+\-@\t\r]/;
 
 /**
 スプレッドシートを開いたときにメニューを追加
@@ -734,6 +736,9 @@ A:P = TeamSpirit原本、Q:AC = 補助列。
 function formatRawAccumSheet_(sheet, columnCount) {
   const dataRows = Math.max(sheet.getMaxRows() - 1, 1);
 
+  // A:P = TeamSpirit原本列。CSV由来文字列を数式として解釈させない。
+  sheet.getRange(2, 1, dataRows, Math.min(RAW_TEXT_COLUMN_COUNT, columnCount)).setNumberFormat('@');
+
   // S:T = 週開始日・週終了日
   sheet.getRange(2, 19, dataRows, 2).setNumberFormat('yyyy/mm/dd');
 
@@ -754,6 +759,7 @@ function writeRawSheet_(sheet, processed) {
 
   const output = [processed.headers].concat(processed.dataRows);
   ensureSheetSize_(sheet, output.length, output[0].length);
+  prepareRawAccumSheetForWrite_(sheet, 1, output.length, output[0].length);
 
   sheet.getRange(1, 1, output.length, output[0].length).setValues(output);
   formatHeaderRow_(sheet, 1, output[0].length);
@@ -796,6 +802,7 @@ function ensureAccumHeader_() {
   const output = [headers].concat(migratedRows);
   sheet.clearContents();
   ensureSheetSize_(sheet, output.length, headers.length);
+  prepareRawAccumSheetForWrite_(sheet, 1, output.length, headers.length);
   sheet.getRange(1, 1, output.length, headers.length).setValues(output);
   formatHeaderRow_(sheet, 1, headers.length);
   sheet.setFrozenRows(1);
@@ -825,6 +832,7 @@ function upsertAccumulatedRows_(headers, newRows) {
 
   if (lastRow <= 1) {
     ensureSheetSize_(sheet, incoming.rows.length + 1, headers.length);
+    prepareRawAccumSheetForWrite_(sheet, 2, incoming.rows.length, headers.length);
     sheet.getRange(2, 1, incoming.rows.length, headers.length).setValues(incoming.rows);
     formatRawAccumSheet_(sheet, headers.length);
     SpreadsheetApp.flush();
@@ -881,6 +889,7 @@ function upsertAccumulatedRows_(headers, newRows) {
 
   if (rowsToAppend.length > 0) {
     ensureSheetSize_(sheet, lastRow + rowsToAppend.length, headers.length);
+    prepareRawAccumSheetForWrite_(sheet, lastRow + 1, rowsToAppend.length, headers.length);
     sheet.getRange(lastRow + 1, 1, rowsToAppend.length, headers.length).setValues(rowsToAppend);
   }
 
@@ -977,6 +986,7 @@ function upsertAccumulatedRowsFullRewrite_(headers, newRows) {
   const output = [headers].concat(outputRows);
   sheet.clearContents();
   ensureSheetSize_(sheet, output.length, headers.length);
+  prepareRawAccumSheetForWrite_(sheet, 1, output.length, headers.length);
   sheet.getRange(1, 1, output.length, headers.length).setValues(output);
   formatHeaderRow_(sheet, 1, headers.length);
   sheet.setFrozenRows(1);
@@ -1085,6 +1095,7 @@ function writeSparseRowsNative_(sheet, rowsToUpdate, columnCount) {
     if (item.rowNumber === previousRow + 1) {
       batch.push(item.data);
     } else {
+      prepareRawAccumSheetForWrite_(sheet, startRow, batch.length, columnCount);
       sheet.getRange(startRow, 1, batch.length, columnCount).setValues(batch);
       startRow = item.rowNumber;
       batch = [item.data];
@@ -1093,6 +1104,7 @@ function writeSparseRowsNative_(sheet, rowsToUpdate, columnCount) {
     previousRow = item.rowNumber;
   }
 
+  prepareRawAccumSheetForWrite_(sheet, startRow, batch.length, columnCount);
   sheet.getRange(startRow, 1, batch.length, columnCount).setValues(batch);
 }
 
@@ -1925,7 +1937,7 @@ function writeCategoryDashboard_(sheet, title, category, deptRows, targetMonth, 
   sheet.clearContents();
   ensureSheetSize_(sheet, padded.length, padded[0].length);
 
-  sheet.getRange(1, 1, padded.length, padded[0].length).setValues(padded);
+  sheet.getRange(1, 1, padded.length, padded[0].length).setValues(sanitizeValuesForSheet_(padded));
   sheet.getRange(1, 1).setFontWeight('bold').setFontSize(14);
   sheet.getRange(6, 1, 1, 2).setFontWeight('bold').setBackground('#17466f').setFontColor('#ffffff');
   sheet.getRange(14, 1, 1, 7).setFontWeight('bold').setBackground('#17466f').setFontColor('#ffffff');
@@ -2043,7 +2055,7 @@ function writeCategoryDashboardWithCompare_(sheet, title, category, currentDeptR
   const padded = padRows_(output);
   sheet.clearContents();
   ensureSheetSize_(sheet, padded.length, padded[0].length);
-  sheet.getRange(1, 1, padded.length, padded[0].length).setValues(padded);
+  sheet.getRange(1, 1, padded.length, padded[0].length).setValues(sanitizeValuesForSheet_(padded));
   sheet.getRange(1, 1).setFontWeight('bold').setFontSize(14);
   sheet.getRange(6, 1, 1, 5).setFontWeight('bold').setBackground('#17466f').setFontColor('#ffffff');
   sheet.getRange(14, 1, 1, 13).setFontWeight('bold').setBackground('#17466f').setFontColor('#ffffff');
@@ -2205,6 +2217,36 @@ function writeErrorSheet_(errors, targetMonth) {
   sheet.getRange('A:A').setNumberFormat('yyyy/mm/dd hh:mm');
 }
 
+
+/**
+CSV由来の文字列が数式として解釈されないよう、TeamSpirit原本列をプレーンテキスト形式にする。
+原本列以外の補助列は日付・数値として扱うため、ここでは書式を変えない。
+*/
+function prepareRawAccumSheetForWrite_(sheet, startRow, rowCount, columnCount) {
+  if (!sheet || rowCount <= 0 || columnCount <= 0) {
+    return;
+  }
+
+  const textColumnCount = Math.min(RAW_TEXT_COLUMN_COUNT, columnCount);
+  if (textColumnCount > 0) {
+    sheet.getRange(startRow, 1, rowCount, textColumnCount).setNumberFormat('@');
+  }
+}
+
+/**
+集計・ダッシュボード等の表示用シートで、CSV由来文字列の数式インジェクションを防ぐ。
+*/
+function sanitizeValuesForSheet_(values) {
+  return (values || []).map(row => (row || []).map(sanitizeValueForSheet_));
+}
+
+function sanitizeValueForSheet_(value) {
+  if (typeof value === 'string' && DANGEROUS_SHEET_TEXT_PREFIX.test(value)) {
+    return "'" + value;
+  }
+  return value;
+}
+
 /**
 表書き込み共通
 */
@@ -2218,7 +2260,7 @@ function writeTable_(sheet, values, options) {
   const padded = padRows_(values);
 
   ensureSheetSize_(sheet, padded.length, padded[0].length);
-  sheet.getRange(1, 1, padded.length, padded[0].length).setValues(padded);
+  sheet.getRange(1, 1, padded.length, padded[0].length).setValues(sanitizeValuesForSheet_(padded));
   formatHeaderRow_(sheet, 1, padded[0].length);
   sheet.setFrozenRows(1);
 
@@ -2794,8 +2836,7 @@ function getHtmlDashboardData() {
     return {
       ok: false,
       message: 'ダッシュボードデータ作成時にエラーが発生しました。\n\n' +
-        (error && error.message ? error.message : String(error)) +
-        (error && error.stack ? '\n\n' + error.stack : ''),
+        (error && error.message ? error.message : String(error)),
       settings: settings,
       latestLog: {},
       errorCount: errorCount,
