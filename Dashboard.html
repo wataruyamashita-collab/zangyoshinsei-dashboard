@@ -629,6 +629,41 @@
       };
     }
 
+
+    function formatMonthLabel(value) {
+      const d = parseDisplayDate(value);
+      if (d) return d.getFullYear() + '年' + (d.getMonth() + 1) + '月';
+      const text = String(value || '').trim();
+      const m = text.match(/^(\d{4})[-/](\d{1,2})/);
+      return m ? (Number(m[1]) + '年' + Number(m[2]) + '月') : text;
+    }
+
+    function formatWeekLabel(weekKey, weekStart, weekEnd) {
+      const start = parseDisplayDate(weekStart) || parseDisplayDate(String(weekKey || '').replace('週', ''));
+      const end = parseDisplayDate(weekEnd);
+      if (!start) return String(weekKey || '').trim();
+      const title = start.getFullYear() + '年' + (start.getMonth() + 1) + '月' + start.getDate() + '日週';
+      return end ? title + '（' + shortDate(start) + '〜' + shortDate(end) + '）' : title;
+    }
+
+    function shortDate(date) {
+      return (date.getMonth() + 1) + '/' + date.getDate();
+    }
+
+    function parseDisplayDate(value) {
+      if (!value) return null;
+      const text = String(value).trim().replace(/年|月/g, '/').replace(/日/g, '').replace(/-/g, '/');
+      let m = text.match(/^(\d{4})\/(\d{1,2})(?:\/(\d{1,2}))?/);
+      if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3] || 1));
+      m = text.match(/^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2})\s+(\d{4})/i);
+      if (m) {
+        const parsed = new Date(value);
+        if (!isNaN(parsed.getTime())) return parsed;
+      }
+      const parsed = new Date(value);
+      return isNaN(parsed.getTime()) ? null : parsed;
+    }
+
     function render(data) {
       const isAdmin = !!data.isAdmin;
       document.body.dataset.mode = data.mode || DASHBOARD_MODE;
@@ -638,8 +673,8 @@
       Array.prototype.forEach.call(document.querySelectorAll('.admin-only, .admin-action'), function(el) {
         el.style.display = isAdmin ? '' : 'none';
       });
-      document.getElementById('targetMonth').textContent = data.settings.targetMonth || '-';
-      document.getElementById('targetWeek').textContent = data.settings.targetWeek || '-';
+      document.getElementById('targetMonth').textContent = formatMonthLabel(data.settings.targetMonth) || '-';
+      document.getElementById('targetWeek').textContent = formatWeekLabel(data.settings.targetWeek, data.settings.weekStart, data.settings.weekEnd) || '-';
       document.getElementById('lastImportTime').textContent = data.settings.lastImportTime || '-';
       document.getElementById('errorCount').textContent = data.errorCount + '件';
       document.getElementById('adminPanel').textContent = isAdmin
@@ -678,23 +713,27 @@
     }
 
     function renderDepartment(props) {
+      const monthlyLabel = formatMonthLabel(props.monthlyLabel);
+      const previousMonthLabel = formatMonthLabel(props.previousMonthLabel);
+      const weeklyLabel = formatWeekLabel(props.weeklyLabel);
+      const previousWeekLabel = formatWeekLabel(props.previousWeekLabel);
       const monthly = renderPeriod({
         importance: 'main',
         title: '月次',
-        subtitle: props.isReference ? '営業部門は参考値です。' : '月次確認の中心指標です。',
+        subtitle: props.isReference ? '営業部門は参考集計です。' : '当月の集計結果です。',
         category: props.monthly,
-        label: props.monthlyLabel,
-        previousLabel: props.previousMonthLabel,
+        label: monthlyLabel,
+        previousLabel: previousMonthLabel,
         compareLabel: '前月'
       });
 
       const weekly = renderPeriod({
         importance: 'sub',
         title: '週次',
-        subtitle: '直近の運用状況を確認します。',
+        subtitle: '対象週の集計結果です。',
         category: props.weekly,
-        label: props.weeklyLabel,
-        previousLabel: props.previousWeekLabel,
+        label: weeklyLabel,
+        previousLabel: previousWeekLabel,
         compareLabel: '前週'
       });
 
@@ -702,10 +741,10 @@
         <div class="department-shell">
           <div class="department-head">
             <div class="department-title">${escapeHtml(props.title)}</div>
-            <div class="department-period">月次：${escapeHtml(props.monthlyLabel || '-')} ／ 週次：${escapeHtml(props.weeklyLabel || '-')}</div>
+            <div class="department-period">週次：${escapeHtml(weeklyLabel || '-')} ／ 月次：${escapeHtml(monthlyLabel || '-')}</div>
           </div>
-          ${monthly}
           ${weekly}
+          ${monthly}
         </div>
       `;
     }
@@ -719,49 +758,50 @@
             <div class="period-title">${escapeHtml(props.title)}<small>${escapeHtml(props.subtitle)}</small></div>
             <div class="period-info">対象：${escapeHtml(props.label || '-')} ／ ${escapeHtml(props.compareLabel)}：${escapeHtml(props.previousLabel || '-')}</div>
           </div>
-          ${renderKpis(props.category)}
-          ${renderAttention(props.category)}
+          ${renderKpis(props.category, props.compareLabel)}
+          ${renderAttention(props.category, props.title)}
           ${renderDetailTable(props.category, props.title + ' 部署別明細', props.compareLabel)}
         </div>
       `;
     }
 
-    function renderKpis(category) {
+    function renderKpis(category, compareLabel) {
       const c = category.current;
       const d = category.diff;
 
       return `
         <div class="kpi-grid">
-          ${renderKpi('定時前申請率', pct(c.beforeApplyRate), pt(d.beforeApplyRate), d.beforeApplyRate, Direction.HIGHER_IS_GOOD, true)}
-          ${renderKpi('定時前承認率', pct(c.beforeApproveRate), pt(d.beforeApproveRate), d.beforeApproveRate, Direction.HIGHER_IS_GOOD, true)}
-          ${renderKpi('翌日承認率', pct(c.nextDayApproveRate), pt(d.nextDayApproveRate), d.nextDayApproveRate, Direction.HIGHER_IS_GOOD, true)}
+          ${renderKpi('定時前申請率', pct(c.beforeApplyRate), pt(d.beforeApplyRate), d.beforeApplyRate, Direction.HIGHER_IS_GOOD, true, compareLabel)}
+          ${renderKpi('定時前承認率', pct(c.beforeApproveRate), pt(d.beforeApproveRate), d.beforeApproveRate, Direction.HIGHER_IS_GOOD, true, compareLabel)}
+          ${renderKpi('翌日承認率', pct(c.nextDayApproveRate), pt(d.nextDayApproveRate), d.nextDayApproveRate, Direction.HIGHER_IS_GOOD, true, compareLabel)}
         </div>
         <div class="support-grid">
-          ${renderKpi('申請件数', c.count + '件', signedNum(d.count) + '件', d.count, Direction.NEUTRAL, false)}
-          ${renderKpi('未承認件数', c.notApprovedCount + '件', signedNum(d.notApprovedCount) + '件', d.notApprovedCount, Direction.LOWER_IS_GOOD, false)}
-          ${renderKpi('確認部署数', attentionDepartments(category).length + '部署', '', 0, Direction.NEUTRAL, false)}
+          ${renderKpi('申請件数', c.count + '件', signedNum(d.count) + '件', d.count, Direction.NEUTRAL, false, compareLabel)}
+          ${renderKpi('未承認件数', c.notApprovedCount + '件', signedNum(d.notApprovedCount) + '件', d.notApprovedCount, Direction.LOWER_IS_GOOD, false, compareLabel)}
+          ${renderKpi('確認部署数', attentionDepartments(category).length + '部署', '', 0, Direction.NEUTRAL, false, '')}
         </div>
       `;
     }
 
-    function renderKpi(label, value, deltaText, deltaValue, direction, primary) {
+    function renderKpi(label, value, deltaText, deltaValue, direction, primary, compareLabel) {
       const color = scoreClass(deltaValue, direction);
       return `
         <div class="kpi-card ${primary ? 'primary' : ''}">
           <div class="kpi-label">${escapeHtml(label)}</div>
           <div class="kpi-value">${escapeHtml(value)}</div>
-          <div class="kpi-delta ${color}">${deltaText ? '差分：' + escapeHtml(deltaText) : '—'}</div>
+          <div class="kpi-delta ${color}">${deltaText ? escapeHtml(compareLabel + '比：' + deltaText) : '—'}</div>
         </div>
       `;
     }
 
-    function renderAttention(category) {
+    function renderAttention(category, periodTitle) {
+      const attentionTitle = (periodTitle || '') + '確認対象部署';
       const targets = attentionDepartments(category);
 
       if (targets.length === 0) {
         return `
           <div class="attention" style="background:#f0f8f2;border-color:#cce8d3;">
-            <div class="attention-title" style="color:var(--good);">確認対象部署</div>
+            <div class="attention-title" style="color:var(--good);">${escapeHtml(attentionTitle)}</div>
             <div class="attention-list">
               <span class="attention-chip" style="border-color:#b8dfc1;color:var(--good);">現時点で要確認部署はありません</span>
             </div>
@@ -771,7 +811,7 @@
 
       return `
         <div class="attention">
-          <div class="attention-title">確認対象部署</div>
+          <div class="attention-title">${escapeHtml(attentionTitle)}</div>
           <div class="attention-list">
             ${targets.map(row => `
               <span class="attention-chip">${escapeHtml(row.deptName)}：承認率 ${pct(row.beforeApproveRate)}／未承認 ${num(row.notApprovedCount)}件</span>
@@ -801,11 +841,11 @@
         : rows.map(row => `
           <tr>
             <td>${escapeHtml(row.deptName)}</td>
-            <td>${renderCountCell(row.count, row.countDiff)}</td>
-            <td>${renderRateCell(row.beforeApplyRate, row.beforeApplyRateDiff)}</td>
-            <td>${renderRateCell(row.beforeApproveRate, row.beforeApproveRateDiff)}</td>
-            <td>${renderRateCell(row.nextDayApproveRate, row.nextDayApproveRateDiff)}</td>
-            <td>${renderLowerGoodCountCell(row.notApprovedCount, row.notApprovedCountDiff)}</td>
+            <td>${renderCountCell(row.count, row.countDiff, compareLabel)}</td>
+            <td>${renderRateCell(row.beforeApplyRate, row.beforeApplyRateDiff, compareLabel)}</td>
+            <td>${renderRateCell(row.beforeApproveRate, row.beforeApproveRateDiff, compareLabel)}</td>
+            <td>${renderRateCell(row.nextDayApproveRate, row.nextDayApproveRateDiff, compareLabel)}</td>
+            <td>${renderLowerGoodCountCell(row.notApprovedCount, row.notApprovedCountDiff, compareLabel)}</td>
             <td>${row.alert ? '<span class="alert">' + escapeHtml(row.alert) + '</span>' : '<span class="ok">良好</span>'}</td>
           </tr>
         `).join('');
@@ -836,26 +876,26 @@
       `;
     }
 
-    function renderCountCell(value, diff) {
+    function renderCountCell(value, diff, compareLabel) {
       return `
         <span class="metric-main">${num(value)}件</span>
-        <span class="metric-sub neutral">${signedNum(diff)}件</span>
+        <span class="metric-sub neutral">${escapeHtml(compareLabel)}比：${signedNum(diff)}件</span>
       `;
     }
 
-    function renderRateCell(value, diff) {
+    function renderRateCell(value, diff, compareLabel) {
       return `
         <span class="metric-main">${pct(value)}</span>
-        <span class="metric-sub ${scoreClass(diff, Direction.HIGHER_IS_GOOD)}">${pt(diff)}</span>
+        <span class="metric-sub ${scoreClass(diff, Direction.HIGHER_IS_GOOD)}">${escapeHtml(compareLabel)}比：${pt(diff)}</span>
       `;
     }
 
-    function renderLowerGoodCountCell(value, diff) {
+    function renderLowerGoodCountCell(value, diff, compareLabel) {
       const n = Number(value || 0);
       const klass = n > 0 ? 'bad' : 'good';
       return `
         <span class="metric-main ${klass}">${num(n)}件</span>
-        <span class="metric-sub ${scoreClass(diff, Direction.LOWER_IS_GOOD)}">${signedNum(diff)}件</span>
+        <span class="metric-sub ${scoreClass(diff, Direction.LOWER_IS_GOOD)}">${escapeHtml(compareLabel)}比：${signedNum(diff)}件</span>
       `;
     }
 
