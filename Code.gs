@@ -71,1253 +71,6 @@ const TS_CONFIG = {
   ]
 };
 
-/**
-HTML_UPLOAD_DIALOG is embedded to avoid HtmlService file lookups.
-*/
-const HTML_UPLOAD_DIALOG = String.raw`<!DOCTYPE html>
-<html>
-<head>
-  <base target="_top">
-  <meta charset="UTF-8">
-  <style>
-    body {
-      font-family: Arial, "Yu Gothic", "Meiryo", sans-serif;
-      font-size: 14px;
-      color: #202124;
-      padding: 18px;
-      line-height: 1.6;
-    }
-    h2 {
-      font-size: 18px;
-      margin: 0 0 12px;
-      color: #17466f;
-    }
-    .box {
-      border: 1px solid #dadce0;
-      border-radius: 8px;
-      padding: 14px;
-      margin-top: 12px;
-      background: #fff;
-    }
-    .note {
-      color: #5f6368;
-      font-size: 13px;
-      margin-top: 8px;
-    }
-    label {
-      display: block;
-      font-weight: bold;
-      margin-top: 12px;
-      margin-bottom: 4px;
-    }
-    input[type="file"], select {
-      width: 100%;
-      box-sizing: border-box;
-      padding: 8px;
-      border: 1px solid #dadce0;
-      border-radius: 4px;
-      background: #fff;
-    }
-    button {
-      margin-top: 16px;
-      padding: 9px 16px;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-weight: bold;
-    }
-    .primary {
-      background: #17466f;
-      color: #fff;
-    }
-    .secondary {
-      background: #f1f3f4;
-      color: #202124;
-      margin-left: 8px;
-    }
-    .status {
-      margin-top: 14px;
-      padding: 10px;
-      border-radius: 6px;
-      background: #f8f9fa;
-      white-space: pre-wrap;
-      min-height: 42px;
-    }
-    .error {
-      background: #fce8e6;
-      color: #b3261e;
-    }
-    .success {
-      background: #e6f4ea;
-      color: #137333;
-    }
-  </style>
-</head>
-<body>
-  <h2>TeamSpirit CSVファイル取り込み</h2>
-
-  <div class="box">
-    <div>
-      TeamSpiritから出力したCSVファイルを選択してください。<br>
-      取り込んだデータは申請単位で保持・更新され、月次・週次の両方の集計に反映されます。
-    </div>
-
-    <label for="csvFile">CSVファイル</label>
-    <input type="file" id="csvFile" accept=".csv,text/csv">
-
-    <label for="encoding">文字コード</label>
-    <select id="encoding">
-      <option value="auto" selected>自動判定</option>
-      <option value="utf-8">UTF-8</option>
-      <option value="shift_jis">Shift_JIS / CP932</option>
-    </select>
-
-    <div class="note">
-      ※Apps ScriptがCドライブを直接読むのではなく、選択したファイルの内容だけをブラウザ経由で取り込みます。<br>
-      ※同じ申請は申請キーで更新されるため、毎日取り込んでも二重計上されにくい設計です。
-    </div>
-
-    <button class="primary" onclick="startImport()">取り込み実行</button>
-    <button class="secondary" onclick="google.script.host.close()">閉じる</button>
-
-    <div id="status" class="status">CSVファイルを選択して「取り込み実行」を押してください。</div>
-  </div>
-
-  <script>
-
-    const REQUIRED_HEADERS = [
-      '部署名',
-      '社員コード',
-      '社員名',
-      '日付',
-      '曜日',
-      '残業申請:申請対象社員コード',
-      '残業申請:申請対象社員名',
-      '残業申請:申請種類',
-      '残業申請:ステータス',
-      '残業申請:申請日時',
-      '残業申請:申請者',
-      '残業申請:承認日時',
-      '残業申請:承認者',
-      '残業申請:承認却下コメント',
-      '残業申請:内容',
-      '残業申請:備考'
-    ];
-    function startImport() {
-      const fileInput = document.getElementById('csvFile');
-      const encoding = document.getElementById('encoding').value;
-      const status = document.getElementById('status');
-
-      status.className = 'status';
-      status.textContent = '';
-
-      if (!fileInput.files || fileInput.files.length === 0) {
-        status.className = 'status error';
-        status.textContent = 'CSVファイルを選択してください。';
-        return;
-      }
-
-      const file = fileInput.files[0];
-
-      if (!/\.csv$/i.test(file.name)) {
-        status.className = 'status error';
-        status.textContent = 'CSVファイルを選択してください。';
-        return;
-      }
-
-      status.textContent = 'CSVファイルを読み込んでいます...';
-
-      const reader = new FileReader();
-
-      reader.onload = function(event) {
-        try {
-          const buffer = event.target.result;
-          const decoded = decodeCsvBuffer(buffer, encoding);
-
-          if (!decoded.text || decoded.text.trim() === '') {
-            throw new Error('CSVファイルの内容が空です。');
-          }
-
-          status.textContent = '取り込み・データ更新・月次週次集計を実行しています...';
-
-          google.script.run
-            .withSuccessHandler(function(result) {
-              status.className = 'status success';
-              status.textContent =
-                '取り込みが完了しました。\n\n' +
-                'ファイル名：' + result.fileName + '\n' +
-                '対象年月：' + result.targetMonth + '\n' +
-                '対象週：' + result.targetWeek + '（' + result.weekStart + '〜' + result.weekEnd + '）\n\n' +
-                '新規追加：' + result.added + '件\n' +
-                '更新：' + result.updated + '件\n' +
-                '取込対象外：' + result.skipped + '件\n\n' +
-                '月次対象件数：' + result.monthlyImportCount + '件\n' +
-                '月次スタッフ部門：' + result.monthlyStaffCount + '件\n' +
-                '月次営業参考：' + result.monthlySalesCount + '件\n\n' +
-                '週次対象件数：' + result.weeklyImportCount + '件\n' +
-                '週次スタッフ部門：' + result.weeklyStaffCount + '件\n' +
-                '週次営業参考：' + result.weeklySalesCount + '件\n\n' +
-                'エラー・確認件数：' + result.errorCount + '件\n' +
-                '文字コード：' + result.encoding + '\n\n' +
-                'メニュー「TeamSpirit取込」→「HTMLダッシュボードを開く」から、月次・週次の結果を確認してください。';
-            })
-            .withFailureHandler(function(error) {
-              status.className = 'status error';
-              status.textContent = '取り込みでエラーが発生しました。\n\n' + (error && error.message ? error.message : error);
-            })
-            .importLocalCsvText({
-              fileName: file.name,
-              fileSize: file.size,
-              encoding: decoded.encoding,
-              csvText: decoded.text
-            });
-        } catch (error) {
-          status.className = 'status error';
-          status.textContent = 'CSV読込でエラーが発生しました。\n\n' + error.message;
-        }
-      };
-
-      reader.onerror = function() {
-        status.className = 'status error';
-        status.textContent = 'ファイルを読み込めませんでした。';
-      };
-
-      reader.readAsArrayBuffer(file);
-    }
-
-    function decodeCsvBuffer(buffer, encoding) {
-      if (encoding === 'utf-8') {
-        return {
-          text: decodeWith('utf-8', buffer),
-          encoding: 'UTF-8'
-        };
-      }
-
-      if (encoding === 'shift_jis') {
-        return {
-          text: decodeWith('shift_jis', buffer),
-          encoding: 'Shift_JIS'
-        };
-      }
-
-      const candidates = [
-        { text: decodeWith('utf-8', buffer), encoding: 'UTF-8(auto)' },
-        { text: decodeWith('shift_jis', buffer), encoding: 'Shift_JIS(auto)' }
-      ].map(function(candidate) {
-        return Object.assign(candidate, { quality: inspectCsvDecodeQuality(candidate.text) });
-      });
-
-      candidates.sort(compareDecodeCandidates);
-
-      return {
-        text: candidates[0].text,
-        encoding: candidates[0].quality.requiredHeaderMatches >= REQUIRED_HEADERS.length
-          ? candidates[0].encoding
-          : candidates[0].encoding + ' fallback'
-      };
-    }
-
-    function decodeWith(label, buffer) {
-      try {
-        return new TextDecoder(label, { fatal: false }).decode(buffer);
-      } catch (error) {
-        if (label === 'shift_jis') {
-          return new TextDecoder('utf-8', { fatal: false }).decode(buffer);
-        }
-        throw error;
-      }
-    }
-
-    function inspectCsvDecodeQuality(text) {
-      const headers = parseCsvHeaderLine(text).map(normalizeHeader);
-      return {
-        requiredHeaderMatches: REQUIRED_HEADERS
-          .map(normalizeHeader)
-          .filter(function(required) { return headers.indexOf(required) !== -1; })
-          .length,
-        looksLikeTeamSpiritCsv: looksLikeTeamSpiritCsv(text),
-        replacementChars: countReplacementChars(text)
-      };
-    }
-
-    function compareDecodeCandidates(a, b) {
-      if (a.quality.requiredHeaderMatches !== b.quality.requiredHeaderMatches) {
-        return b.quality.requiredHeaderMatches - a.quality.requiredHeaderMatches;
-      }
-      if (a.quality.looksLikeTeamSpiritCsv !== b.quality.looksLikeTeamSpiritCsv) {
-        return a.quality.looksLikeTeamSpiritCsv ? -1 : 1;
-      }
-      return a.quality.replacementChars - b.quality.replacementChars;
-    }
-
-    function parseCsvHeaderLine(text) {
-      const firstLine = String(text || '').replace(/^\uFEFF/, '').split(/\r\n|\n|\r/)[0] || '';
-      const cells = [];
-      let current = '';
-      let inQuotes = false;
-
-      for (let i = 0; i < firstLine.length; i++) {
-        const ch = firstLine.charAt(i);
-        const next = firstLine.charAt(i + 1);
-
-        if (ch === '"' && inQuotes && next === '"') {
-          current += '"';
-          i++;
-        } else if (ch === '"') {
-          inQuotes = !inQuotes;
-        } else if (ch === ',' && !inQuotes) {
-          cells.push(current);
-          current = '';
-        } else {
-          current += ch;
-        }
-      }
-
-      cells.push(current);
-      return cells;
-    }
-
-    function normalizeHeader(header) {
-      return String(header || '')
-        .replace(/\s/g, '')
-        .replace(/：/g, ':')
-        .trim();
-    }
-
-    function looksLikeTeamSpiritCsv(text) {
-      const sample = String(text || '').slice(0, 3000);
-      return sample.indexOf('部署名') !== -1 &&
-             sample.indexOf('残業申請') !== -1 &&
-             sample.indexOf('申請日時') !== -1;
-    }
-
-    function countReplacementChars(text) {
-      const matched = String(text || '').match(/\uFFFD/g);
-      return matched ? matched.length : 0;
-    }
-  </script>
-</body>
-</html>
-`;
-
-/**
-HTML_DASHBOARD is embedded to avoid HtmlService file lookups.
-*/
-const HTML_DASHBOARD = String.raw`<!DOCTYPE html>
-<html>
-<head>
-  <base target="_top">
-  <meta charset="UTF-8">
-  <style>
-    :root {
-      --blue: #17466f;
-      --blue-dark: #0f3554;
-      --bg: #f5f7fb;
-      --surface: #ffffff;
-      --surface-soft: #f9fbfd;
-      --line: #d7dee8;
-      --line-soft: #edf1f7;
-      --text: #1f2937;
-      --sub: #667085;
-      --good: #137333;
-      --bad: #b42318;
-      --warn: #b26a00;
-      --neutral: #64748b;
-      --chip: #eaf1f8;
-    }
-
-    * {
-      box-sizing: border-box;
-    }
-
-    body {
-      margin: 0;
-      font-family: Arial, "Yu Gothic", "Meiryo", sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      font-size: 14px;
-    }
-
-    .app-header {
-      background: linear-gradient(135deg, var(--blue), var(--blue-dark));
-      color: white;
-      padding: 18px 24px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 16px;
-    }
-
-    .app-title {
-      font-size: 20px;
-      font-weight: 800;
-      letter-spacing: .01em;
-    }
-
-    .app-subtitle {
-      font-size: 12px;
-      opacity: .9;
-      margin-top: 4px;
-    }
-
-    .actions {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-    }
-
-    .actions button {
-      border: 1px solid rgba(255,255,255,.45);
-      background: rgba(255,255,255,.12);
-      color: white;
-      border-radius: 8px;
-      padding: 8px 12px;
-      cursor: pointer;
-      font-weight: 700;
-    }
-
-    .actions button:hover {
-      background: rgba(255,255,255,.22);
-    }
-
-    .wrap {
-      padding: 18px 24px 28px;
-    }
-
-    .status,
-    .error-box {
-      background: var(--surface);
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      padding: 16px;
-      margin-bottom: 14px;
-      color: var(--sub);
-      white-space: pre-wrap;
-    }
-
-    .error-box {
-      background: #fce8e6;
-      color: var(--bad);
-      border-color: #f3b8b2;
-    }
-
-    .meta {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(140px, 1fr));
-      gap: 10px;
-      margin-bottom: 14px;
-    }
-
-    .meta-card {
-      background: var(--surface);
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: 11px 12px;
-      font-size: 12px;
-      color: var(--sub);
-      min-height: 58px;
-    }
-
-    .meta-card b {
-      display: block;
-      color: var(--blue);
-      font-size: 13px;
-      margin-top: 4px;
-      word-break: break-word;
-    }
-
-    .tabs {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 0;
-      flex-wrap: wrap;
-    }
-
-    .tab {
-      border: 1px solid var(--line);
-      background: var(--chip);
-      border-radius: 12px 12px 0 0;
-      padding: 11px 22px;
-      cursor: pointer;
-      font-weight: 800;
-      color: var(--blue);
-      min-width: 190px;
-      text-align: center;
-    }
-
-    .tab.active {
-      background: var(--surface);
-      border-bottom-color: var(--surface);
-      box-shadow: 0 -1px 2px rgba(16,24,40,.04);
-    }
-
-    .section {
-      display: none;
-    }
-
-    .section.active {
-      display: block;
-    }
-
-    .department-shell {
-      background: var(--surface);
-      border: 1px solid var(--line);
-      border-radius: 0 14px 14px 14px;
-      padding: 16px;
-      box-shadow: 0 1px 2px rgba(16,24,40,.04);
-      margin-top: -1px;
-    }
-
-    .department-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      gap: 12px;
-      margin-bottom: 14px;
-    }
-
-    .department-title {
-      font-size: 18px;
-      font-weight: 900;
-      color: var(--blue);
-    }
-
-    .department-period {
-      font-size: 12px;
-      color: var(--sub);
-    }
-
-    .period-main {
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      background: #fff;
-      padding: 16px;
-      margin-bottom: 16px;
-    }
-
-    .period-sub {
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      background: var(--surface-soft);
-      padding: 14px;
-      margin-top: 16px;
-    }
-
-    .period-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      gap: 12px;
-      margin-bottom: 12px;
-    }
-
-    .period-title {
-      font-size: 17px;
-      font-weight: 900;
-      color: var(--blue);
-    }
-
-    .period-title small {
-      font-size: 12px;
-      color: var(--sub);
-      font-weight: 700;
-      margin-left: 8px;
-    }
-
-    .period-info {
-      color: var(--sub);
-      font-size: 12px;
-    }
-
-    .kpi-grid {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(180px, 1fr));
-      gap: 12px;
-      margin-bottom: 12px;
-    }
-
-    .support-grid {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(180px, 1fr));
-      gap: 12px;
-      margin-bottom: 12px;
-    }
-
-    .kpi-card {
-      background: #fbfdff;
-      border: 1px solid #e4ebf3;
-      border-radius: 14px;
-      padding: 14px;
-      min-height: 108px;
-    }
-
-    .kpi-card.primary {
-      background: linear-gradient(180deg, #ffffff, #f7fbff);
-      border-color: #d7e5f5;
-    }
-
-    .kpi-label {
-      margin: 0 0 8px;
-      font-size: 13px;
-      color: var(--sub);
-      font-weight: 800;
-    }
-
-    .kpi-value {
-      font-size: 30px;
-      font-weight: 900;
-      letter-spacing: -.02em;
-    }
-
-    .kpi-delta {
-      font-size: 12px;
-      margin-top: 7px;
-      font-weight: 800;
-    }
-
-    .good { color: var(--good); }
-    .bad { color: var(--bad); }
-    .neutral { color: var(--neutral); }
-
-    .attention {
-      background: #fff8ed;
-      border: 1px solid #ffe0ad;
-      border-radius: 14px;
-      padding: 12px;
-      margin: 12px 0;
-    }
-
-    .attention-title {
-      font-size: 13px;
-      font-weight: 900;
-      color: var(--warn);
-      margin-bottom: 8px;
-    }
-
-    .attention-list {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-
-    .attention-chip {
-      display: inline-flex;
-      gap: 6px;
-      align-items: center;
-      border-radius: 999px;
-      background: #fff;
-      border: 1px solid #f5c36d;
-      padding: 5px 9px;
-      color: #8a4b00;
-      font-size: 12px;
-      font-weight: 800;
-    }
-
-    .table-card {
-      border: 1px solid var(--line-soft);
-      border-radius: 12px;
-      background: #fff;
-      overflow: hidden;
-      margin-top: 12px;
-    }
-
-    .table-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 10px 12px;
-      border-bottom: 1px solid var(--line-soft);
-      background: #fbfdff;
-    }
-
-    .table-title {
-      font-size: 14px;
-      font-weight: 900;
-      color: var(--blue);
-    }
-
-    .table-caption {
-      font-size: 12px;
-      color: var(--sub);
-    }
-
-    .table-wrap {
-      max-height: 420px;
-      overflow: auto;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      background: white;
-      font-size: 13px;
-    }
-
-    th, td {
-      border-bottom: 1px solid #edf1f7;
-      padding: 9px 10px;
-      text-align: right;
-      white-space: nowrap;
-      vertical-align: middle;
-    }
-
-    th {
-      background: #eef4fb;
-      color: #17324d;
-      font-weight: 900;
-      position: sticky;
-      top: 0;
-      z-index: 1;
-    }
-
-    th:first-child, td:first-child {
-      text-align: left;
-      min-width: 220px;
-      position: sticky;
-      left: 0;
-      background: inherit;
-      z-index: 0;
-    }
-
-    th:first-child {
-      background: #eef4fb;
-      z-index: 2;
-    }
-
-    td:first-child {
-      background: white;
-      font-weight: 800;
-    }
-
-    .metric-main {
-      font-weight: 900;
-      display: block;
-    }
-
-    .metric-sub {
-      font-size: 11px;
-      font-weight: 800;
-      display: block;
-      margin-top: 2px;
-    }
-
-    .alert {
-      display: inline-block;
-      border-radius: 999px;
-      background: #fff4e5;
-      color: var(--warn);
-      padding: 3px 8px;
-      font-size: 12px;
-      font-weight: 900;
-    }
-
-    .ok {
-      display: inline-block;
-      border-radius: 999px;
-      background: #e6f4ea;
-      color: var(--good);
-      padding: 3px 8px;
-      font-size: 12px;
-      font-weight: 900;
-    }
-
-    .note {
-      color: var(--sub);
-      font-size: 12px;
-      line-height: 1.6;
-      margin-top: 12px;
-      background: white;
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: 12px;
-    }
-
-    @media print {
-      .actions, .tabs {
-        display: none !important;
-      }
-
-      .wrap {
-        padding: 10px;
-      }
-
-      .section {
-        display: none !important;
-      }
-
-      .section.active {
-        display: block !important;
-      }
-
-      .department-shell,
-      .period-main,
-      .period-sub,
-      .table-card {
-        box-shadow: none;
-      }
-
-      .table-wrap {
-        max-height: none;
-        overflow: visible;
-      }
-
-      body {
-        background: white;
-      }
-    }
-  </style>
-</head>
-<body>
-  <div class="app-header">
-    <div>
-      <div class="app-title" id="appTitle">TeamSpirit 残業申請・承認ダッシュボード</div>
-      <div class="app-subtitle">残業申請・承認の事前運用状況を月次・週次で確認します。</div>
-    </div>
-    <div class="actions">
-      <button class="admin-action" onclick="loadData()">再読み込み</button>
-      <button onclick="window.print()">表示中のタブを印刷</button>
-      <button onclick="google.script.host.close()">閉じる</button>
-    </div>
-  </div>
-
-  <div class="wrap">
-    <div id="message" class="status">ダッシュボードを読み込んでいます...</div>
-
-    <div id="content" style="display:none;">
-      <div class="meta">
-        <div class="meta-card">対象年月<b id="targetMonth"></b></div>
-        <div class="meta-card">対象週<b id="targetWeek"></b></div>
-        <div class="meta-card">最終取込日時<b id="lastImportTime"></b></div>
-        <div class="meta-card admin-only">エラー・確認件数<b id="errorCount"></b></div>
-      </div>
-
-      <div class="tabs">
-        <button id="tabStaff" class="tab active" onclick="switchTab('staff')">スタッフ部門</button>
-        <button id="tabSales" class="tab" onclick="switchTab('sales')">営業部門（参考）</button>
-      </div>
-
-      <div id="staff" class="section active"></div>
-      <div id="sales" class="section"></div>
-
-      <div class="note admin-only" id="adminPanel"></div>
-      <div class="note" id="dashboardNote"></div>
-    </div>
-  </div>
-
-  <script>
-    const Direction = {
-      HIGHER_IS_GOOD: 'higher',
-      LOWER_IS_GOOD: 'lower',
-      NEUTRAL: 'neutral'
-    };
-
-    const DASHBOARD_MODE = '__DASHBOARD_MODE__';
-    let dashboardData = null;
-    let dashboardLoadTimer = null;
-
-    function loadData() {
-      const message = document.getElementById('message');
-      const content = document.getElementById('content');
-
-      message.className = 'status';
-      message.textContent = 'ダッシュボードを読み込んでいます...';
-      message.style.display = 'block';
-      content.style.display = 'none';
-
-      if (typeof google === 'undefined' || !google.script || !google.script.run) {
-        message.className = 'error-box';
-        message.textContent = 'このHTMLはブラウザで直接開けません。スプレッドシートのメニュー「TeamSpirit取込」→「閲覧用ダッシュボードを開く」から開いてください。';
-        return;
-      }
-
-      if (dashboardLoadTimer) {
-        clearTimeout(dashboardLoadTimer);
-      }
-      dashboardLoadTimer = setTimeout(function() {
-        message.className = 'error-box';
-        message.textContent = 'ダッシュボードデータの取得に時間がかかっています。\n\n' +
-          '考えられる原因：取込データ件数が多い、シートの読込範囲が広い、またはサーバー側処理が停止しています。\n' +
-          'Apps Script画面の「実行数」で getHtmlDashboardData の結果を確認してください。';
-      }, 45000);
-
-      google.script.run
-        .withSuccessHandler(function(data) {
-          if (dashboardLoadTimer) {
-            clearTimeout(dashboardLoadTimer);
-            dashboardLoadTimer = null;
-          }
-
-          try {
-            dashboardData = normalizeDashboardPayload(data);
-
-            if (!dashboardData.ok) {
-              message.className = 'error-box';
-              message.textContent = dashboardData.message || 'ダッシュボードデータを取得できませんでした。';
-              return;
-            }
-
-            render(dashboardData);
-            message.style.display = 'none';
-            content.style.display = 'block';
-          } catch (error) {
-            message.className = 'error-box';
-            message.textContent = 'ダッシュボード描画時にエラーが発生しました。\n\n' +
-              (error && error.message ? error.message : error) +
-              '\n\nサーバーから返ったデータ構造とDashboard.html側の参照が一致していない可能性があります。';
-          }
-        })
-        .withFailureHandler(function(error) {
-          if (dashboardLoadTimer) {
-            clearTimeout(dashboardLoadTimer);
-            dashboardLoadTimer = null;
-          }
-          message.className = 'error-box';
-          message.textContent = 'ダッシュボードの読み込みでエラーが発生しました。\n\n' + (error && error.message ? error.message : error);
-        })
-        .getHtmlDashboardData(DASHBOARD_MODE);
-    }
-
-
-    function normalizeDashboardPayload(data) {
-      if (typeof data === 'string') {
-        try {
-          data = JSON.parse(data);
-        } catch (error) {
-          return {
-            ok: false,
-            message: 'サーバーから返ったデータを解析できませんでした。\n\n' +
-              (error && error.message ? error.message : error)
-          };
-        }
-      }
-
-      if (!data || typeof data !== 'object') {
-        return { ok: false, message: 'サーバーから有効なデータが返っていません。' };
-      }
-
-      data.settings = data.settings || {};
-      data.errorCount = Number(data.errorCount || 0);
-      data.monthly = data.monthly || {};
-      data.weekly = data.weekly || {};
-      data.monthly.staff = normalizeCategoryPayload(data.monthly.staff);
-      data.monthly.sales = normalizeCategoryPayload(data.monthly.sales);
-      data.weekly.staff = normalizeCategoryPayload(data.weekly.staff);
-      data.weekly.sales = normalizeCategoryPayload(data.weekly.sales);
-      data.monthly.label = data.monthly.label || '';
-      data.monthly.previousLabel = data.monthly.previousLabel || '';
-      data.weekly.label = data.weekly.label || '';
-      data.weekly.previousLabel = data.weekly.previousLabel || '';
-      return data;
-    }
-
-    function normalizeCategoryPayload(category) {
-      const emptyTotal = {
-        count: 0,
-        beforeApplyRate: 0,
-        beforeApproveRate: 0,
-        nextDayApproveRate: 0,
-        notApprovedCount: 0
-      };
-      return {
-        category: category && category.category ? category.category : '',
-        current: Object.assign({}, emptyTotal, category && category.current ? category.current : {}),
-        previous: Object.assign({}, emptyTotal, category && category.previous ? category.previous : {}),
-        diff: Object.assign({
-          count: 0,
-          countGrowth: 0,
-          beforeApplyRate: 0,
-          beforeApproveRate: 0,
-          nextDayApproveRate: 0,
-          notApprovedCount: 0
-        }, category && category.diff ? category.diff : {}),
-        details: Array.isArray(category && category.details) ? category.details : []
-      };
-    }
-
-    function render(data) {
-      const isAdmin = !!data.isAdmin;
-      document.body.dataset.mode = data.mode || DASHBOARD_MODE;
-      document.getElementById('appTitle').textContent = isAdmin
-        ? 'TeamSpirit 残業申請・承認ダッシュボード（admin用）'
-        : 'TeamSpirit 残業申請・承認ダッシュボード（閲覧用）';
-      Array.prototype.forEach.call(document.querySelectorAll('.admin-only, .admin-action'), function(el) {
-        el.style.display = isAdmin ? '' : 'none';
-      });
-      document.getElementById('targetMonth').textContent = data.settings.targetMonth || '-';
-      document.getElementById('targetWeek').textContent = data.settings.targetWeek || '-';
-      document.getElementById('lastImportTime').textContent = data.settings.lastImportTime || '-';
-      document.getElementById('errorCount').textContent = data.errorCount + '件';
-      document.getElementById('adminPanel').textContent = isAdmin
-        ? 'admin情報：エラー・確認件数 ' + data.errorCount + '件 ／ 最終取込 ' + (data.latestLog && data.latestLog.importTime ? data.latestLog.importTime : '-') + ' ／ サーバー処理 ' + (data.serverElapsedMs || 0) + 'ms'
-        : '';
-      document.getElementById('dashboardNote').textContent = data.settings.dashboardNote || '';
-
-      document.getElementById('staff').innerHTML = renderDepartment({
-        title: 'スタッフ部門',
-        monthly: data.monthly.staff,
-        weekly: data.weekly.staff,
-        monthlyLabel: data.monthly.label,
-        previousMonthLabel: data.monthly.previousLabel,
-        weeklyLabel: data.weekly.label,
-        previousWeekLabel: data.weekly.previousLabel,
-        isReference: false
-      });
-
-      document.getElementById('sales').innerHTML = renderDepartment({
-        title: '営業部門（参考）',
-        monthly: data.monthly.sales,
-        weekly: data.weekly.sales,
-        monthlyLabel: data.monthly.label,
-        previousMonthLabel: data.monthly.previousLabel,
-        weeklyLabel: data.weekly.label,
-        previousWeekLabel: data.weekly.previousLabel,
-        isReference: true
-      });
-    }
-
-    function switchTab(name) {
-      document.getElementById('tabStaff').classList.toggle('active', name === 'staff');
-      document.getElementById('tabSales').classList.toggle('active', name === 'sales');
-      document.getElementById('staff').classList.toggle('active', name === 'staff');
-      document.getElementById('sales').classList.toggle('active', name === 'sales');
-    }
-
-    function renderDepartment(props) {
-      const monthly = renderPeriod({
-        importance: 'main',
-        title: '月次',
-        subtitle: props.isReference ? '営業部門は参考値です。' : '月次確認の中心指標です。',
-        category: props.monthly,
-        label: props.monthlyLabel,
-        previousLabel: props.previousMonthLabel,
-        compareLabel: '前月'
-      });
-
-      const weekly = renderPeriod({
-        importance: 'sub',
-        title: '週次',
-        subtitle: '直近の運用状況を確認します。',
-        category: props.weekly,
-        label: props.weeklyLabel,
-        previousLabel: props.previousWeekLabel,
-        compareLabel: '前週'
-      });
-
-      return \`
-        <div class="department-shell">
-          <div class="department-head">
-            <div class="department-title">\${escapeHtml(props.title)}</div>
-            <div class="department-period">月次：\${escapeHtml(props.monthlyLabel || '-')} ／ 週次：\${escapeHtml(props.weeklyLabel || '-')}</div>
-          </div>
-          \${monthly}
-          \${weekly}
-        </div>
-      \`;
-    }
-
-    function renderPeriod(props) {
-      const className = props.importance === 'main' ? 'period-main' : 'period-sub';
-
-      return \`
-        <div class="\${className}">
-          <div class="period-header">
-            <div class="period-title">\${escapeHtml(props.title)}<small>\${escapeHtml(props.subtitle)}</small></div>
-            <div class="period-info">対象：\${escapeHtml(props.label || '-')} ／ \${escapeHtml(props.compareLabel)}：\${escapeHtml(props.previousLabel || '-')}</div>
-          </div>
-          \${renderKpis(props.category)}
-          \${renderAttention(props.category)}
-          \${renderDetailTable(props.category, props.title + ' 部署別明細', props.compareLabel)}
-        </div>
-      \`;
-    }
-
-    function renderKpis(category) {
-      const c = category.current;
-      const d = category.diff;
-
-      return \`
-        <div class="kpi-grid">
-          \${renderKpi('定時前申請率', pct(c.beforeApplyRate), pt(d.beforeApplyRate), d.beforeApplyRate, Direction.HIGHER_IS_GOOD, true)}
-          \${renderKpi('定時前承認率', pct(c.beforeApproveRate), pt(d.beforeApproveRate), d.beforeApproveRate, Direction.HIGHER_IS_GOOD, true)}
-          \${renderKpi('翌日承認率', pct(c.nextDayApproveRate), pt(d.nextDayApproveRate), d.nextDayApproveRate, Direction.HIGHER_IS_GOOD, true)}
-        </div>
-        <div class="support-grid">
-          \${renderKpi('申請件数', c.count + '件', signedNum(d.count) + '件', d.count, Direction.NEUTRAL, false)}
-          \${renderKpi('未承認件数', c.notApprovedCount + '件', signedNum(d.notApprovedCount) + '件', d.notApprovedCount, Direction.LOWER_IS_GOOD, false)}
-          \${renderKpi('確認部署数', attentionDepartments(category).length + '部署', '', 0, Direction.NEUTRAL, false)}
-        </div>
-      \`;
-    }
-
-    function renderKpi(label, value, deltaText, deltaValue, direction, primary) {
-      const color = scoreClass(deltaValue, direction);
-      return \`
-        <div class="kpi-card \${primary ? 'primary' : ''}">
-          <div class="kpi-label">\${escapeHtml(label)}</div>
-          <div class="kpi-value">\${escapeHtml(value)}</div>
-          <div class="kpi-delta \${color}">\${deltaText ? '差分：' + escapeHtml(deltaText) : '—'}</div>
-        </div>
-      \`;
-    }
-
-    function renderAttention(category) {
-      const targets = attentionDepartments(category);
-
-      if (targets.length === 0) {
-        return \`
-          <div class="attention" style="background:#f0f8f2;border-color:#cce8d3;">
-            <div class="attention-title" style="color:var(--good);">確認対象部署</div>
-            <div class="attention-list">
-              <span class="attention-chip" style="border-color:#b8dfc1;color:var(--good);">現時点で要確認部署はありません</span>
-            </div>
-          </div>
-        \`;
-      }
-
-      return \`
-        <div class="attention">
-          <div class="attention-title">確認対象部署</div>
-          <div class="attention-list">
-            \${targets.map(row => \`
-              <span class="attention-chip">\${escapeHtml(row.deptName)}：承認率 \${pct(row.beforeApproveRate)}／未承認 \${num(row.notApprovedCount)}件</span>
-            \`).join('')}
-          </div>
-        </div>
-      \`;
-    }
-
-    function attentionDepartments(category) {
-      return (category.details || [])
-        .filter(row => row.alert || Number(row.notApprovedCount || 0) > 0)
-        .sort((a, b) => {
-          if (Number(b.notApprovedCount || 0) !== Number(a.notApprovedCount || 0)) {
-            return Number(b.notApprovedCount || 0) - Number(a.notApprovedCount || 0);
-          }
-          return Number(a.beforeApproveRate || 0) - Number(b.beforeApproveRate || 0);
-        })
-        .slice(0, 5);
-    }
-
-    function renderDetailTable(category, title, compareLabel) {
-      const rows = category.details || [];
-
-      const body = rows.length === 0
-        ? \`<tr><td colspan="7">対象データがありません。</td></tr>\`
-        : rows.map(row => \`
-          <tr>
-            <td>\${escapeHtml(row.deptName)}</td>
-            <td>\${renderCountCell(row.count, row.countDiff)}</td>
-            <td>\${renderRateCell(row.beforeApplyRate, row.beforeApplyRateDiff)}</td>
-            <td>\${renderRateCell(row.beforeApproveRate, row.beforeApproveRateDiff)}</td>
-            <td>\${renderRateCell(row.nextDayApproveRate, row.nextDayApproveRateDiff)}</td>
-            <td>\${renderLowerGoodCountCell(row.notApprovedCount, row.notApprovedCountDiff)}</td>
-            <td>\${row.alert ? '<span class="alert">' + escapeHtml(row.alert) + '</span>' : '<span class="ok">良好</span>'}</td>
-          </tr>
-        \`).join('');
-
-      return \`
-        <div class="table-card">
-          <div class="table-head">
-            <div class="table-title">\${escapeHtml(title)}</div>
-            <div class="table-caption">差分は\${escapeHtml(compareLabel)}比</div>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>部署名</th>
-                  <th>申請件数</th>
-                  <th>定時前申請率</th>
-                  <th>定時前承認率</th>
-                  <th>翌日承認率</th>
-                  <th>未承認</th>
-                  <th>判定</th>
-                </tr>
-              </thead>
-              <tbody>\${body}</tbody>
-            </table>
-          </div>
-        </div>
-      \`;
-    }
-
-    function renderCountCell(value, diff) {
-      return \`
-        <span class="metric-main">\${num(value)}件</span>
-        <span class="metric-sub neutral">\${signedNum(diff)}件</span>
-      \`;
-    }
-
-    function renderRateCell(value, diff) {
-      return \`
-        <span class="metric-main">\${pct(value)}</span>
-        <span class="metric-sub \${scoreClass(diff, Direction.HIGHER_IS_GOOD)}">\${pt(diff)}</span>
-      \`;
-    }
-
-    function renderLowerGoodCountCell(value, diff) {
-      const n = Number(value || 0);
-      const klass = n > 0 ? 'bad' : 'good';
-      return \`
-        <span class="metric-main \${klass}">\${num(n)}件</span>
-        <span class="metric-sub \${scoreClass(diff, Direction.LOWER_IS_GOOD)}">\${signedNum(diff)}件</span>
-      \`;
-    }
-
-    function scoreClass(value, direction) {
-      const n = Number(value || 0);
-
-      if (direction === Direction.NEUTRAL || n === 0) {
-        return 'neutral';
-      }
-
-      if (direction === Direction.HIGHER_IS_GOOD) {
-        return n > 0 ? 'good' : 'bad';
-      }
-
-      if (direction === Direction.LOWER_IS_GOOD) {
-        return n < 0 ? 'good' : 'bad';
-      }
-
-      return 'neutral';
-    }
-
-    function pct(value) {
-      const n = Number(value || 0);
-      return (n * 100).toFixed(1) + '%';
-    }
-
-    function pt(value) {
-      const n = Number(value || 0) * 100;
-      const sign = n > 0 ? '+' : '';
-      return sign + n.toFixed(1) + 'pt';
-    }
-
-    function num(value) {
-      return Number(value || 0).toLocaleString('ja-JP');
-    }
-
-    function signedNum(value) {
-      const n = Number(value || 0);
-      const sign = n > 0 ? '+' : '';
-      return sign + n.toLocaleString('ja-JP');
-    }
-
-    function escapeHtml(value) {
-      return String(value == null ? '' : value)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-    }
-
-    loadData();
-  </script>
-</body>
-</html>
-`;
-
 // 部署判定で使う正規表現は一度だけコンパイルする。
 const REGEX_SALES_DEPT = /営業所|出張所|エリア/;
 const RAW_TEXT_COLUMN_COUNT = TS_CONFIG.REQUIRED_HEADERS.length;
@@ -1349,7 +102,7 @@ function showLocalCsvUploadDialog() {
   ensureBaseSheets_(SpreadsheetApp.getActiveSpreadsheet());
 
   const html = HtmlService
-    .createHtmlOutput(HTML_UPLOAD_DIALOG)
+    .createHtmlOutputFromFile('UploadDialog')
     .setWidth(620)
     .setHeight(430);
 
@@ -1489,8 +242,12 @@ function importLocalCsvText(payload) {
     writeErrorSheet_(errors, targetMonth);
 
     const summaries = buildMonthlyWeeklySummaryBundle_(accumInfo.rows, accumInfo.headers, settings);
-    writeAllSummarySheets_(summaries);
-    writeAllDashboards_(summaries, settings);
+    if (settings.updateSummarySheets) {
+      writeAllSummarySheets_(summaries);
+    }
+    if (settings.updateSheetDashboards) {
+      writeAllDashboards_(summaries, settings);
+    }
 
     appendImportLog_({
       importType: 'ローカルCSV取込',
@@ -1566,8 +323,12 @@ function rebuildMonthlyAndWeeklyFromAccum() {
     const settings = getSettings_();
     const summaries = buildMonthlyWeeklySummaryBundle_(accumInfo.rows, accumInfo.headers, settings);
 
-    writeAllSummarySheets_(summaries);
-    writeAllDashboards_(summaries, settings);
+    if (settings.updateSummarySheets) {
+      writeAllSummarySheets_(summaries);
+    }
+    if (settings.updateSheetDashboards) {
+      writeAllDashboards_(summaries, settings);
+    }
 
     appendImportLog_({
       importType: '月次・週次再集計',
@@ -1680,16 +441,47 @@ function checkInitialSetup() {
 必要シートを作成
 */
 function ensureBaseSheets_(ss) {
-  Object.keys(TS_CONFIG.SHEETS).forEach(key => {
+  ensureSheetsByKeys_(ss, [
+    'RAW',
+    'ACCUM',
+    'SETTINGS',
+    'DEPT_MASTER',
+    'IMPORT_LOG',
+    'ERRORS'
+  ]);
+
+  ensureDefaultSettings_();
+  ensureDeptMasterHeader_();
+  ensureAccumHeader_();
+}
+
+function ensureSummarySheets_(ss) {
+  ensureSheetsByKeys_(ss, [
+    'SUMMARY_DEPT',
+    'SUMMARY_PERSON',
+    'SUMMARY_APPROVER',
+    'SUMMARY_WEEK_DEPT',
+    'SUMMARY_WEEK_PERSON',
+    'SUMMARY_WEEK_APPROVER'
+  ]);
+}
+
+function ensureDashboardOutputSheets_(ss) {
+  ensureSheetsByKeys_(ss, [
+    'DASHBOARD_STAFF',
+    'DASHBOARD_SALES',
+    'DASHBOARD_WEEK_STAFF',
+    'DASHBOARD_WEEK_SALES'
+  ]);
+}
+
+function ensureSheetsByKeys_(ss, sheetKeys) {
+  (sheetKeys || []).forEach(key => {
     const name = TS_CONFIG.SHEETS[key];
     if (!ss.getSheetByName(name)) {
       ss.insertSheet(name);
     }
   });
-
-  ensureDefaultSettings_();
-  ensureDeptMasterHeader_();
-  ensureAccumHeader_();
 }
 
 /**
@@ -1711,6 +503,8 @@ function ensureDefaultSettings_() {
     ['営業拠点参考表示', true, 'TRUEなら営業部門も参考表示'],
     ['翌日承認判定', '暦日翌日23:59', '対象日の翌日23:59:59まで'],
     ['承認率注意基準', 0.8, '定時前承認率がこの値未満の場合、要確認'],
+    ['集計シート更新', true, 'TRUEならCSV取込・再集計時に集計_* シートへ書き出します。HTMLダッシュボードだけで運用する場合はFALSEで高速化できます。'],
+    ['シート版ダッシュボード更新', false, 'TRUEならダッシュボード_* シートへも書き出します。通常はHTMLダッシュボードを使うためFALSE推奨です。'],
     ['最終取込日時', '', '取込完了時刻'],
     ['ダッシュボード注記', 'TeamSpirit上の残業申請・承認データをもとに、事前申請・事前承認の運用状況を可視化するものです。\n勤怠締め前のデータは速報値であり、申請・承認状況の更新により数値が変動する場合があります。', '表示用注記']
   ];
@@ -2818,6 +1612,7 @@ function writeSummarySheets_(summaries) {
 月次・週次の集計シート書き込み
 */
 function writeAllSummarySheets_(bundle) {
+  ensureSummarySheets_(SpreadsheetApp.getActiveSpreadsheet());
   writeSummarySheets_(bundle.monthly.current);
   writeSummarySet_(
     bundle.weekly.current,
@@ -2951,6 +1746,7 @@ function writeCategoryDashboard_(sheet, title, category, deptRows, targetMonth, 
 */
 function writeAllDashboards_(bundle, settings) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  ensureDashboardOutputSheets_(ss);
   writeCategoryDashboardWithCompare_(
     ss.getSheetByName(TS_CONFIG.SHEETS.DASHBOARD_STAFF),
     '【月次】スタッフ部門：残業事前申請・事前承認 運用状況',
@@ -3413,6 +2209,8 @@ function getSettings_() {
     importType: '速報',
     closingTime: TS_CONFIG.DEFAULT_CLOSING_TIME,
     alertThreshold: 0.8,
+    updateSummarySheets: true,
+    updateSheetDashboards: false,
     lastImportTime: '',
     dashboardNote: ''
   };
@@ -3434,6 +2232,8 @@ function getSettings_() {
     if (key === '取込区分') settings.importType = val;
     if (key === '定時時刻') settings.closingTime = val || TS_CONFIG.DEFAULT_CLOSING_TIME;
     if (key === '承認率注意基準') settings.alertThreshold = parseRate_(val, 0.8);
+    if (key === '集計シート更新') settings.updateSummarySheets = parseBooleanSetting_(val, true);
+    if (key === 'シート版ダッシュボード更新') settings.updateSheetDashboards = parseBooleanSetting_(val, false);
     if (key === '最終取込日時') settings.lastImportTime = val;
     if (key === 'ダッシュボード注記') settings.dashboardNote = val;
   }
@@ -3766,6 +2566,29 @@ function parseRate_(value, defaultValue) {
 }
 
 /**
+設定シートのTRUE/FALSE値を安全に解釈する。
+*/
+function parseBooleanSetting_(value, defaultValue) {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (value === null || value === undefined || value === '') {
+    return defaultValue;
+  }
+
+  const text = String(value).trim().toLowerCase();
+  if (['true', '1', 'yes', 'y', 'on', 'する', 'はい'].includes(text)) {
+    return true;
+  }
+  if (['false', '0', 'no', 'n', 'off', 'しない', 'いいえ'].includes(text)) {
+    return false;
+  }
+
+  return defaultValue;
+}
+
+/**
 空欄判定
 */
 function isBlank_(value) {
@@ -3820,11 +2643,12 @@ function showHtmlDashboardByMode_(mode) {
   ensureBaseSheets_(ss);
 
   const dashboardMode = normalizeDashboardMode_(mode);
-  const htmlSource = HTML_DASHBOARD.replace(/__DASHBOARD_MODE__/g, dashboardMode);
+  const template = HtmlService.createTemplateFromFile('Dashboard');
+  template.dashboardMode = dashboardMode;
   const titleSuffix = dashboardMode === 'admin' ? 'admin用' : '閲覧用';
 
-  const html = HtmlService
-    .createHtmlOutput(htmlSource)
+  const html = template
+    .evaluate()
     .setWidth(1280)
     .setHeight(820);
 
@@ -3956,6 +2780,8 @@ function buildDashboardSettingsPayload_(settings) {
     importType: settings.importType || '',
     lastImportTime: settings.lastImportTime ? formatDateTimeForDisplay_(settings.lastImportTime) : '',
     alertThreshold: parseRate_(settings.alertThreshold, 0.8),
+    updateSummarySheets: !!settings.updateSummarySheets,
+    updateSheetDashboards: !!settings.updateSheetDashboards,
     dashboardNote: settings.dashboardNote || ''
   };
 }

@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <style>
+    body {
+      font-family: Arial, "Yu Gothic", "Meiryo", sans-serif;
+      font-size: 14px;
+      color: #202124;
+      padding: 18px;
+      line-height: 1.6;
+    }
+    h2 {
+      font-size: 18px;
+      margin: 0 0 12px;
+      color: #17466f;
+    }
+    .box {
+      border: 1px solid #dadce0;
+      border-radius: 8px;
+      padding: 14px;
+      margin-top: 12px;
+      background: #fff;
+    }
+    .note {
+      color: #5f6368;
+      font-size: 13px;
+      margin-top: 8px;
+    }
+    label {
+      display: block;
+      font-weight: bold;
+      margin-top: 12px;
+      margin-bottom: 4px;
+    }
+    input[type="file"], select {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 8px;
+      border: 1px solid #dadce0;
+      border-radius: 4px;
+      background: #fff;
+    }
+    button {
+      margin-top: 16px;
+      padding: 9px 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    .primary {
+      background: #17466f;
+      color: #fff;
+    }
+    .secondary {
+      background: #f1f3f4;
+      color: #202124;
+      margin-left: 8px;
+    }
+    .status {
+      margin-top: 14px;
+      padding: 10px;
+      border-radius: 6px;
+      background: #f8f9fa;
+      white-space: pre-wrap;
+      min-height: 42px;
+    }
+    .error {
+      background: #fce8e6;
+      color: #b3261e;
+    }
+    .success {
+      background: #e6f4ea;
+      color: #137333;
+    }
+  </style>
+</head>
+<body>
+  <h2>TeamSpirit CSVファイル取り込み</h2>
+
+  <div class="box">
+    <div>
+      TeamSpiritから出力したCSVファイルを選択してください。<br>
+      取り込んだデータは申請単位で保持・更新され、月次・週次の両方の集計に反映されます。
+    </div>
+
+    <label for="csvFile">CSVファイル</label>
+    <input type="file" id="csvFile" accept=".csv,text/csv">
+
+    <label for="encoding">文字コード</label>
+    <select id="encoding">
+      <option value="auto" selected>自動判定</option>
+      <option value="utf-8">UTF-8</option>
+      <option value="shift_jis">Shift_JIS / CP932</option>
+    </select>
+
+    <div class="note">
+      ※Apps ScriptがCドライブを直接読むのではなく、選択したファイルの内容だけをブラウザ経由で取り込みます。<br>
+      ※同じ申請は申請キーで更新されるため、毎日取り込んでも二重計上されにくい設計です。
+    </div>
+
+    <button class="primary" onclick="startImport()">取り込み実行</button>
+    <button class="secondary" onclick="google.script.host.close()">閉じる</button>
+
+    <div id="status" class="status">CSVファイルを選択して「取り込み実行」を押してください。</div>
+  </div>
+
+  <script>
+
+    const REQUIRED_HEADERS = [
+      '部署名',
+      '社員コード',
+      '社員名',
+      '日付',
+      '曜日',
+      '残業申請:申請対象社員コード',
+      '残業申請:申請対象社員名',
+      '残業申請:申請種類',
+      '残業申請:ステータス',
+      '残業申請:申請日時',
+      '残業申請:申請者',
+      '残業申請:承認日時',
+      '残業申請:承認者',
+      '残業申請:承認却下コメント',
+      '残業申請:内容',
+      '残業申請:備考'
+    ];
+    function startImport() {
+      const fileInput = document.getElementById('csvFile');
+      const encoding = document.getElementById('encoding').value;
+      const status = document.getElementById('status');
+
+      status.className = 'status';
+      status.textContent = '';
+
+      if (!fileInput.files || fileInput.files.length === 0) {
+        status.className = 'status error';
+        status.textContent = 'CSVファイルを選択してください。';
+        return;
+      }
+
+      const file = fileInput.files[0];
+
+      if (!/\.csv$/i.test(file.name)) {
+        status.className = 'status error';
+        status.textContent = 'CSVファイルを選択してください。';
+        return;
+      }
+
+      status.textContent = 'CSVファイルを読み込んでいます...';
+
+      const reader = new FileReader();
+
+      reader.onload = function(event) {
+        try {
+          const buffer = event.target.result;
+          const decoded = decodeCsvBuffer(buffer, encoding);
+
+          if (!decoded.text || decoded.text.trim() === '') {
+            throw new Error('CSVファイルの内容が空です。');
+          }
+
+          status.textContent = '取り込み・データ更新・月次週次集計を実行しています...';
+
+          google.script.run
+            .withSuccessHandler(function(result) {
+              status.className = 'status success';
+              status.textContent =
+                '取り込みが完了しました。\n\n' +
+                'ファイル名：' + result.fileName + '\n' +
+                '対象年月：' + result.targetMonth + '\n' +
+                '対象週：' + result.targetWeek + '（' + result.weekStart + '〜' + result.weekEnd + '）\n\n' +
+                '新規追加：' + result.added + '件\n' +
+                '更新：' + result.updated + '件\n' +
+                '取込対象外：' + result.skipped + '件\n\n' +
+                '月次対象件数：' + result.monthlyImportCount + '件\n' +
+                '月次スタッフ部門：' + result.monthlyStaffCount + '件\n' +
+                '月次営業参考：' + result.monthlySalesCount + '件\n\n' +
+                '週次対象件数：' + result.weeklyImportCount + '件\n' +
+                '週次スタッフ部門：' + result.weeklyStaffCount + '件\n' +
+                '週次営業参考：' + result.weeklySalesCount + '件\n\n' +
+                'エラー・確認件数：' + result.errorCount + '件\n' +
+                '文字コード：' + result.encoding + '\n\n' +
+                'メニュー「TeamSpirit取込」→「閲覧用ダッシュボードを開く」から、月次・週次の結果を確認してください。';
+            })
+            .withFailureHandler(function(error) {
+              status.className = 'status error';
+              status.textContent = '取り込みでエラーが発生しました。\n\n' + (error && error.message ? error.message : error);
+            })
+            .importLocalCsvText({
+              fileName: file.name,
+              fileSize: file.size,
+              encoding: decoded.encoding,
+              csvText: decoded.text
+            });
+        } catch (error) {
+          status.className = 'status error';
+          status.textContent = 'CSV読込でエラーが発生しました。\n\n' + error.message;
+        }
+      };
+
+      reader.onerror = function() {
+        status.className = 'status error';
+        status.textContent = 'ファイルを読み込めませんでした。';
+      };
+
+      reader.readAsArrayBuffer(file);
+    }
+
+    function decodeCsvBuffer(buffer, encoding) {
+      if (encoding === 'utf-8') {
+        return {
+          text: decodeWith('utf-8', buffer),
+          encoding: 'UTF-8'
+        };
+      }
+
+      if (encoding === 'shift_jis') {
+        return {
+          text: decodeWith('shift_jis', buffer),
+          encoding: 'Shift_JIS'
+        };
+      }
+
+      const candidates = [
+        { text: decodeWith('utf-8', buffer), encoding: 'UTF-8(auto)' },
+        { text: decodeWith('shift_jis', buffer), encoding: 'Shift_JIS(auto)' }
+      ].map(function(candidate) {
+        return Object.assign(candidate, { quality: inspectCsvDecodeQuality(candidate.text) });
+      });
+
+      candidates.sort(compareDecodeCandidates);
+
+      return {
+        text: candidates[0].text,
+        encoding: candidates[0].quality.requiredHeaderMatches >= REQUIRED_HEADERS.length
+          ? candidates[0].encoding
+          : candidates[0].encoding + ' fallback'
+      };
+    }
+
+    function decodeWith(label, buffer) {
+      try {
+        return new TextDecoder(label, { fatal: false }).decode(buffer);
+      } catch (error) {
+        if (label === 'shift_jis') {
+          return new TextDecoder('utf-8', { fatal: false }).decode(buffer);
+        }
+        throw error;
+      }
+    }
+
+    function inspectCsvDecodeQuality(text) {
+      const headers = parseCsvHeaderLine(text).map(normalizeHeader);
+      return {
+        requiredHeaderMatches: REQUIRED_HEADERS
+          .map(normalizeHeader)
+          .filter(function(required) { return headers.indexOf(required) !== -1; })
+          .length,
+        looksLikeTeamSpiritCsv: looksLikeTeamSpiritCsv(text),
+        replacementChars: countReplacementChars(text)
+      };
+    }
+
+    function compareDecodeCandidates(a, b) {
+      if (a.quality.requiredHeaderMatches !== b.quality.requiredHeaderMatches) {
+        return b.quality.requiredHeaderMatches - a.quality.requiredHeaderMatches;
+      }
+      if (a.quality.looksLikeTeamSpiritCsv !== b.quality.looksLikeTeamSpiritCsv) {
+        return a.quality.looksLikeTeamSpiritCsv ? -1 : 1;
+      }
+      return a.quality.replacementChars - b.quality.replacementChars;
+    }
+
+    function parseCsvHeaderLine(text) {
+      const firstLine = String(text || '').replace(/^\uFEFF/, '').split(/\r\n|\n|\r/)[0] || '';
+      const cells = [];
+      let current = '';
+      let inQuotes = false;
+
+      for (let i = 0; i < firstLine.length; i++) {
+        const ch = firstLine.charAt(i);
+        const next = firstLine.charAt(i + 1);
+
+        if (ch === '"' && inQuotes && next === '"') {
+          current += '"';
+          i++;
+        } else if (ch === '"') {
+          inQuotes = !inQuotes;
+        } else if (ch === ',' && !inQuotes) {
+          cells.push(current);
+          current = '';
+        } else {
+          current += ch;
+        }
+      }
+
+      cells.push(current);
+      return cells;
+    }
+
+    function normalizeHeader(header) {
+      return String(header || '')
+        .replace(/\s/g, '')
+        .replace(/：/g, ':')
+        .trim();
+    }
+
+    function looksLikeTeamSpiritCsv(text) {
+      const sample = String(text || '').slice(0, 3000);
+      return sample.indexOf('部署名') !== -1 &&
+             sample.indexOf('残業申請') !== -1 &&
+             sample.indexOf('申請日時') !== -1;
+    }
+
+    function countReplacementChars(text) {
+      const matched = String(text || '').match(/\uFFFD/g);
+      return matched ? matched.length : 0;
+    }
+  </script>
+</body>
+</html>
