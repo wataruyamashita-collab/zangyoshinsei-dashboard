@@ -76,7 +76,13 @@ const REGEX_SALES_DEPT = /営業所|出張所|エリア/;
 const RAW_TEXT_COLUMN_COUNT = TS_CONFIG.REQUIRED_HEADERS.length;
 const DANGEROUS_SHEET_TEXT_PREFIX = /^[=+\-@\t\r]/;
 const LEGACY_GMAIL_IMPORT_QUERY = 'filename:csv newer_than:7d';
-const DEFAULT_GMAIL_IMPORT_QUERY = 'filename:csv newer_than:7d TeamSpirit';
+const LEGACY_GMAIL_IMPORT_QUERY_WITH_KEYWORD = 'filename:csv newer_than:7d TeamSpirit';
+const LEGACY_GMAIL_IMPORT_QUERY_WITH_SUBJECT = 'filename:csv newer_than:7d subject:"申請確認日次勤怠データ"';
+const LEGACY_GMAIL_IMPORT_QUERY_WITH_REPORT_SUBJECT = 'filename:csv newer_than:7d subject:"レポート結果"';
+const LEGACY_GMAIL_IMPORT_QUERY_BARE_SUBJECT = '申請確認日次勤怠データ';
+const DEFAULT_GMAIL_IMPORT_QUERY = 'filename:csv newer_than:30d';
+const GMAIL_REPORT_SUBJECT_KEYWORDS = ['レポート結果', '申請確認日次勤怠データ', 'タジマ'];
+const LEGACY_GMAIL_AUTO_IMPORT_SETTING_KEYS = [];
 
 /**
 スプレッドシートを開いたときにメニューを追加
@@ -440,6 +446,7 @@ function checkInitialSetup() {
   ensureSpreadsheetTimeZone_(ss);
   ensureBaseSheets_(ss);
   ensureDefaultSettings_();
+  const triggerResult = ensureHourlyGmailAutoImportTrigger_();
 
   const targetMonth = getSettingValue_('対象年月');
   const targetWeek = getSettingValue_('対象週');
@@ -453,7 +460,8 @@ function checkInitialSetup() {
     `対象週：${targetWeek}\n` +
     `取込区分：${importType}\n` +
     `定時時刻：${closingTime}\n` +
-    `タイムゾーン：${timeZone}`
+    `タイムゾーン：${timeZone}\n` +
+    `Gmail自動取込：${triggerResult.message}`
   );
 }
 
@@ -527,8 +535,15 @@ function ensureDefaultSettings_() {
     ['シート版ダッシュボード更新', false, 'TRUEならダッシュボード_* シートへも書き出します。通常はHTMLダッシュボードを使うためFALSE推奨です。'],
     ['閲覧用URLトークン', '', 'Webアプリの閲覧用URLを制限する任意トークン。空欄ならデプロイ設定の権限のみで制御します。'],
     ['閲覧用URL（手動設定）', 'https://script.google.com/macros/s/AKfycbxKbCBRDF-FdgbVQztHXRJNp1gMjJW7W65LSVG3khah6-hwhcp5WihfTktFOQCOQA3FUw/exec?mode=viewer', '閲覧できることを確認済みのWebアプリURL。空欄ならApps ScriptのデプロイURLから自動取得します。'],
-    ['Gmail取込検索条件', DEFAULT_GMAIL_IMPORT_QUERY, 'TeamSpiritから配信されるGmail添付CSV自動取込で使用する検索条件。必要に応じて from: や subject: で絞り込んでください。'],
+    ['Gmail取込検索条件', DEFAULT_GMAIL_IMPORT_QUERY, 'TeamSpiritから配信されるGmail添付CSV自動取込で使用する検索条件。Gmail検索はCSV添付に広げ、コード側で件名「レポート結果」「申請確認日次勤怠データ」「タジマ」を確認します。'],
     ['Gmail取込文字コード', 'UTF-8', 'Gmail添付CSVの文字コード。UTF-8またはShift_JIS / CP932を指定します。'],
+    ['Gmailメール取込結果', '', 'Gmailメール取込の直近判定。手動取込成功／自動取込成功／取込対象なし／取込失敗'],
+    ['Gmailメール取込メッセージ', '', 'Gmailメール取込の直近メッセージ'],
+    ['Gmailメール取込日時', '', 'Gmailメール取込の直近実行時刻'],
+    ['Gmail自動取込結果', '', '自動取込の直近判定。自動取込成功／取込対象なし／自動取込失敗'],
+    ['Gmail自動取込メッセージ', '', '自動取込の直近メッセージ'],
+    ['Gmail自動取込日時', '', '自動取込を実行した日時。yyyy/MM/dd HH:mm:ss形式'],
+    ['Gmail自動取込トリガー', '', '毎時自動取込トリガーの設定状態'],
     ['最終取込日時', '', '取込完了時刻'],
     ['ダッシュボード注記', '本資料は、TeamSpiritに登録された残業申請・承認データに基づき、事前申請および事前承認の状況を集計したものです。\n勤怠締め前の数値は速報値であり、申請・承認状況の更新により変更となる場合があります。', '表示用注記']
   ];
@@ -562,7 +577,11 @@ function ensureDefaultSettings_() {
     if (row[0] === 'Gmail取込検索条件') {
       const settingRow = keys.indexOf(row[0]) + 1;
       const currentValue = String(sheet.getRange(settingRow, 2).getValue() || '').trim();
-      if (currentValue === LEGACY_GMAIL_IMPORT_QUERY) {
+      if (currentValue === LEGACY_GMAIL_IMPORT_QUERY ||
+          currentValue === LEGACY_GMAIL_IMPORT_QUERY_WITH_KEYWORD ||
+          currentValue === LEGACY_GMAIL_IMPORT_QUERY_WITH_SUBJECT ||
+          currentValue === LEGACY_GMAIL_IMPORT_QUERY_WITH_REPORT_SUBJECT ||
+          currentValue === LEGACY_GMAIL_IMPORT_QUERY_BARE_SUBJECT) {
         sheet.getRange(settingRow, 2, 1, 2).setValues([[DEFAULT_GMAIL_IMPORT_QUERY, row[2]]]);
       }
     }
@@ -2255,6 +2274,13 @@ function getSettings_() {
     viewerDashboardUrlOverride: 'https://script.google.com/macros/s/AKfycbxKbCBRDF-FdgbVQztHXRJNp1gMjJW7W65LSVG3khah6-hwhcp5WihfTktFOQCOQA3FUw/exec?mode=viewer',
     gmailImportQuery: DEFAULT_GMAIL_IMPORT_QUERY,
     gmailImportEncoding: 'UTF-8',
+    gmailMailImportResult: '',
+    gmailMailImportMessage: '',
+    gmailMailImportTime: '',
+    gmailAutoImportResult: '',
+    gmailAutoImportMessage: '',
+    gmailAutoImportTime: '',
+    gmailAutoImportTrigger: '',
     lastImportTime: '',
     dashboardNote: ''
   };
@@ -2282,6 +2308,13 @@ function getSettings_() {
     if (key === '閲覧用URL（手動設定）') settings.viewerDashboardUrlOverride = String(val || '').trim();
     if (key === 'Gmail取込検索条件') settings.gmailImportQuery = String(val || '').trim();
     if (key === 'Gmail取込文字コード') settings.gmailImportEncoding = String(val || '').trim();
+    if (key === 'Gmailメール取込結果') settings.gmailMailImportResult = String(val || '').trim();
+    if (key === 'Gmailメール取込メッセージ') settings.gmailMailImportMessage = String(val || '').trim();
+    if (key === 'Gmailメール取込日時') settings.gmailMailImportTime = val;
+    if (key === 'Gmail自動取込結果') settings.gmailAutoImportResult = String(val || '').trim();
+    if (key === 'Gmail自動取込メッセージ') settings.gmailAutoImportMessage = String(val || '').trim();
+    if (key === 'Gmail自動取込日時') settings.gmailAutoImportTime = val;
+    if (key === 'Gmail自動取込トリガー') settings.gmailAutoImportTrigger = String(val || '').trim();
     if (key === '最終取込日時') settings.lastImportTime = val;
     if (key === 'ダッシュボード注記') settings.dashboardNote = val;
   }
@@ -2804,14 +2837,30 @@ function normalizeAppsScriptWebAppUrl_(url) {
 function runGmailCsvImportFromMenu() {
   const ui = SpreadsheetApp.getUi();
   try {
-    const result = importLatestTeamSpiritCsvFromGmail();
+    const result = importLatestTeamSpiritCsvFromGmail({
+      recordGmailImportStatus: true,
+      executionType: '手動取込',
+      includeProcessedAttachments: true
+    });
     if (result && result.skipped) {
       ui.alert(result.message || '未取込のCSV添付メールはありません。');
       return;
     }
     ui.alert('Gmail添付CSVの取り込みが完了しました。');
   } catch (error) {
-    ui.alert('Gmail添付CSVの取り込みに失敗しました。\n\n' + (error && error.message ? error.message : error));
+    const message = error && error.message ? error.message : String(error);
+    recordGmailMailImportStatus_('手動取込失敗', `手動取込／${message}`, '手動取込');
+    appendImportLog_({
+      importType: 'メールCSV手動取込',
+      targetMonth: getSettingValue_('対象年月'),
+      targetWeek: getSettingValue_('対象週'),
+      fileName: '',
+      importMethod: 'Gmail添付CSV',
+      importCount: 0,
+      result: '失敗',
+      memo: message
+    });
+    ui.alert('Gmail添付CSVの取り込みに失敗しました。\n\n' + message);
     throw error;
   }
 }
@@ -2820,7 +2869,10 @@ function runGmailCsvImportFromMenu() {
 Gmail添付CSVを1件取り込む。
 設定「Gmail取込検索条件」で対象メールを絞り込み、未取込のCSV添付のみ処理する。
 */
-function importLatestTeamSpiritCsvFromGmail() {
+function importLatestTeamSpiritCsvFromGmail(options) {
+  const shouldRecordGmailStatus = options && options.recordGmailImportStatus === true;
+  const executionType = options && options.executionType ? String(options.executionType) : '自動取込';
+  const includeProcessedAttachments = options && options.includeProcessedAttachments === true;
   const settings = getSettings_();
   const query = settings.gmailImportQuery || DEFAULT_GMAIL_IMPORT_QUERY;
   const threads = GmailApp.search(query, 0, 10);
@@ -2830,6 +2882,8 @@ function importLatestTeamSpiritCsvFromGmail() {
     const messages = threads[t].getMessages();
     for (let m = messages.length - 1; m >= 0; m--) {
       const message = messages[m];
+      if (!isTargetTeamSpiritReportSubject_(message.getSubject())) continue;
+
       const attachments = message.getAttachments({ includeInlineImages: false, includeAttachments: true });
       for (let a = 0; a < attachments.length; a++) {
         const attachment = attachments[a];
@@ -2837,7 +2891,7 @@ function importLatestTeamSpiritCsvFromGmail() {
         if (!/\.csv$/i.test(fileName)) continue;
 
         const attachmentId = `${message.getId()}:${fileName}:${attachment.getBytes().length}`;
-        if (processed[attachmentId]) continue;
+        if (processed[attachmentId] && !includeProcessedAttachments) continue;
 
         const csvText = attachment.getDataAsString(normalizeGmailImportCharset_(settings.gmailImportEncoding));
         const result = importCsvTextPayload_({
@@ -2845,19 +2899,26 @@ function importLatestTeamSpiritCsvFromGmail() {
           encoding: settings.gmailImportEncoding || 'UTF-8',
           csvText: csvText
         }, {
-          importType: 'メールCSV自動取込',
+          importType: executionType === '手動取込' ? 'メールCSV手動取込' : 'メールCSV自動取込',
           importMethod: 'Gmail添付CSV',
-          memoPrefix: `GmailメッセージID：${message.getId()}`
+          memoPrefix: `GmailメッセージID：${message.getId()}${processed[attachmentId] ? '／処理済み添付を再取込' : ''}`
         });
 
         markProcessedGmailAttachmentId_(attachmentId);
+        if (shouldRecordGmailStatus) {
+          recordGmailMailImportStatus_(
+            `${executionType}成功`,
+            `${executionType}／件名：${message.getSubject()}／ファイル：${fileName}／追加：${result.added}件／更新：${result.updated}件／確認：${result.errorCount}件`,
+            executionType
+          );
+        }
         return result;
       }
     }
   }
 
   appendImportLog_({
-    importType: 'メールCSV自動取込',
+    importType: executionType === '手動取込' ? 'メールCSV手動取込' : 'メールCSV自動取込',
     targetMonth: getSettingValue_('対象年月'),
     targetWeek: getSettingValue_('対象週'),
     fileName: '',
@@ -2867,26 +2928,103 @@ function importLatestTeamSpiritCsvFromGmail() {
     memo: `検索条件：${query}`
   });
 
-  return { ok: true, skipped: true, message: '未取込のCSV添付メールはありません。' };
+  const skippedResult = {
+    ok: true,
+    skipped: true,
+    message: `未取込のCSV添付メールはありません。検索条件：${query}／件名条件：${GMAIL_REPORT_SUBJECT_KEYWORDS.join('、')}`
+  };
+  if (shouldRecordGmailStatus) {
+    recordGmailMailImportStatus_('取込対象なし', `${executionType}／${skippedResult.message}`, executionType);
+  }
+  return skippedResult;
+}
+
+/**
+時間主導トリガー用のGmail自動取込エントリーポイント。
+成功・対象なし・失敗を設定シートと取込ログに残し、無人実行時も判定できるようにする。
+*/
+function runGmailAutoImportTrigger() {
+  try {
+    return importLatestTeamSpiritCsvFromGmail({ recordGmailImportStatus: true, executionType: '自動取込' });
+  } catch (error) {
+    const message = error && error.message ? error.message : String(error);
+    recordGmailMailImportStatus_('自動取込失敗', `自動取込／${message}`, '自動取込');
+    appendImportLog_({
+      importType: 'メールCSV自動取込',
+      targetMonth: getSettingValue_('対象年月'),
+      targetWeek: getSettingValue_('対象週'),
+      fileName: '',
+      importMethod: 'Gmail添付CSV',
+      importCount: 0,
+      result: '失敗',
+      memo: message
+    });
+    throw error;
+  }
+}
+
+function isTargetTeamSpiritReportSubject_(subject) {
+  const normalizedSubject = normalizeGmailSubject_(subject);
+  return GMAIL_REPORT_SUBJECT_KEYWORDS.every(keyword => normalizedSubject.includes(normalizeGmailSubject_(keyword)));
+}
+
+function normalizeGmailSubject_(subject) {
+  return String(subject || '')
+    .replace(/^(\s*(re|fw|fwd)\s*:\s*)+/i, '')
+    .replace(/[（）]/g, match => match === '（' ? '(' : ')')
+    .replace(/\s+/g, '')
+    .toLowerCase();
 }
 
 /**
 Gmail自動取込の時間主導トリガーを作成する。
 */
 function installHourlyGmailAutoImportTrigger() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  ensureSpreadsheetTimeZone_(ss);
+  ensureBaseSheets_(ss);
+  ensureDefaultSettings_();
+  const result = ensureHourlyGmailAutoImportTrigger_();
+  SpreadsheetApp.getUi().alert(result.message);
+}
+
+function ensureHourlyGmailAutoImportTrigger_() {
   deleteGmailAutoImportTriggers_();
-  ScriptApp.newTrigger('importLatestTeamSpiritCsvFromGmail')
+  ScriptApp.newTrigger('runGmailAutoImportTrigger')
     .timeBased()
     .everyHours(1)
     .create();
+  const message = '毎時自動取込トリガーを設定済み';
+  setSettingValuesBulk_({
+    'Gmail自動取込トリガー': message
+  });
+  return { ok: true, message: message };
 }
 
 function deleteGmailAutoImportTriggers_() {
   ScriptApp.getProjectTriggers().forEach(trigger => {
-    if (trigger.getHandlerFunction() === 'importLatestTeamSpiritCsvFromGmail') {
+    if (trigger.getHandlerFunction() === 'importLatestTeamSpiritCsvFromGmail' ||
+        trigger.getHandlerFunction() === 'runGmailAutoImportTrigger') {
       ScriptApp.deleteTrigger(trigger);
     }
   });
+}
+
+function recordGmailMailImportStatus_(result, message, executionType) {
+  const executedAt = formatDateTimeForKey_(new Date());
+  const updates = {
+    'Gmailメール取込結果': result,
+    'Gmailメール取込メッセージ': message,
+    'Gmailメール取込日時': executedAt
+  };
+
+  if (executionType === '自動取込') {
+    updates['Gmail自動取込結果'] = result;
+    updates['Gmail自動取込メッセージ'] = message;
+    updates['Gmail自動取込日時'] = executedAt;
+  }
+
+  setSettingValuesBulk_(updates);
 }
 
 function normalizeGmailImportCharset_(encoding) {
