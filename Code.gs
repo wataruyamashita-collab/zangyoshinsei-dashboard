@@ -84,8 +84,11 @@ function onOpen() {
     .createMenu('TeamSpirit取込')
     .addItem('ローカルCSVファイルを選択して取り込み', 'showLocalCsvUploadDialog')
     .addItem('閲覧用ダッシュボードを開く', 'showHtmlDashboard')
+    .addItem('閲覧用URLを確認', 'showViewerDashboardUrl')
     .addItem('admin用ダッシュボードを開く', 'showHtmlAdminDashboard')
     .addItem('月次・週次を再集計', 'rebuildMonthlyAndWeeklyFromAccum')
+    .addItem('Gmail添付CSVを取り込み', 'runGmailCsvImportFromMenu')
+    .addItem('Gmail自動取込を毎時設定', 'installHourlyGmailAutoImportTrigger')
     .addItem('エラー一覧を更新', 'refreshErrorListFromRaw')
     .addSeparator()
     .addItem('対象月を確定にする', 'markCurrentMonthAsFinal')
@@ -175,10 +178,25 @@ function safeParseNumber_(value) {
 HTMLダイアログから渡されたCSVテキストを取り込む
 */
 function importLocalCsvText(payload) {
+  return importCsvTextPayload_(payload, {
+    importType: 'ローカルCSV取込',
+    importMethod: 'HTMLファイル選択'
+  });
+}
+
+/**
+CSVテキストを共通処理で取り込む。
+HTMLファイル選択、Gmail添付CSVなど取込元が異なっても同じ集計処理を使う。
+*/
+function importCsvTextPayload_(payload, options) {
   const lock = LockService.getDocumentLock();
   if (!lock.tryLock(TS_CONFIG.LOCK_TIMEOUT_MS)) {
     throw new Error('別の取込・再集計処理が実行中です。少し待ってから再実行してください。');
   }
+
+  const importType = options && options.importType ? options.importType : 'CSV取込';
+  const importMethod = options && options.importMethod ? options.importMethod : 'CSVテキスト取込';
+  const memoPrefix = options && options.memoPrefix ? String(options.memoPrefix) + '／' : '';
 
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -189,7 +207,7 @@ function importLocalCsvText(payload) {
       throw new Error('CSVファイルの内容が空です。TeamSpiritから出力したCSVファイルを選択してください。');
     }
 
-    const fileName = payload.fileName || 'ローカルCSV';
+    const fileName = payload.fileName || 'CSVファイル';
     const encoding = payload.encoding || 'auto';
     const csvText = normalizeCsvText_(payload.csvText);
 
@@ -250,14 +268,14 @@ function importLocalCsvText(payload) {
     }
 
     appendImportLog_({
-      importType: 'ローカルCSV取込',
+      importType: importType,
       targetMonth: targetMonth,
       targetWeek: targetWeek,
       fileName: fileName,
-      importMethod: 'HTMLファイル選択',
+      importMethod: importMethod,
       importCount: summaries.monthly.current.totalImportCount,
       result: errors.length === 0 ? '成功' : '確認あり',
-      memo: `文字コード：${encoding}／追加：${upsertResult.added}件／更新：${upsertResult.updated}件／除外：${upsertResult.skipped}件／エラー・確認件数：${errors.length}`
+      memo: `${memoPrefix}文字コード：${encoding}／追加：${upsertResult.added}件／更新：${upsertResult.updated}件／除外：${upsertResult.skipped}件／エラー・確認件数：${errors.length}`
     });
 
     SpreadsheetApp.flush();
@@ -283,14 +301,14 @@ function importLocalCsvText(payload) {
     };
   } catch (error) {
     appendImportLog_({
-      importType: 'ローカルCSV取込',
+      importType: importType,
       targetMonth: getSettingValue_('対象年月'),
       targetWeek: getSettingValue_('対象週'),
       fileName: payload && payload.fileName ? payload.fileName : '',
-      importMethod: 'HTMLファイル選択',
+      importMethod: importMethod,
       importCount: 0,
       result: '失敗',
-      memo: error.message
+      memo: memoPrefix + error.message
     });
     throw error;
   } finally {
@@ -495,7 +513,7 @@ function ensureDefaultSettings_() {
   const defaults = [
     ['設定項目', '設定値', '備考'],
     ['対象年月', Utilities.formatDate(new Date(), TS_CONFIG.TIMEZONE, 'yyyy-MM'), 'yyyy-MM形式。CSV取込時に自動判定します。'],
-    ['対象週', getWeekInfo_(new Date()).weekKey, 'yyyy/mm/dd週形式。CSV取込時に自動判定します。'],
+    ['対象週', getWeekInfo_(new Date()).weekKey, 'yyyy-MM-dd週形式。CSV取込時に自動判定します。'],
     ['週開始日', getWeekInfo_(new Date()).weekStart, '月曜始まり'],
     ['週終了日', getWeekInfo_(new Date()).weekEnd, '日曜終わり'],
     ['取込区分', '速報', '速報／確定'],
@@ -505,8 +523,11 @@ function ensureDefaultSettings_() {
     ['承認率注意基準', 0.8, '定時前承認率がこの値未満の場合、要確認'],
     ['集計シート更新', true, 'TRUEならCSV取込・再集計時に集計_* シートへ書き出します。HTMLダッシュボードだけで運用する場合はFALSEで高速化できます。'],
     ['シート版ダッシュボード更新', false, 'TRUEならダッシュボード_* シートへも書き出します。通常はHTMLダッシュボードを使うためFALSE推奨です。'],
+    ['閲覧用URLトークン', '', 'Webアプリの閲覧用URLを制限する任意トークン。空欄ならデプロイ設定の権限のみで制御します。'],
+    ['Gmail取込検索条件', 'filename:csv newer_than:7d', 'Gmail添付CSV自動取込で使用する検索条件。送信元や件名を追加して絞り込んでください。'],
+    ['Gmail取込文字コード', 'UTF-8', 'Gmail添付CSVの文字コード。UTF-8またはShift_JIS / CP932を指定します。'],
     ['最終取込日時', '', '取込完了時刻'],
-    ['ダッシュボード注記', 'TeamSpirit上の残業申請・承認データをもとに、事前申請・事前承認の運用状況を可視化するものです。\n勤怠締め前のデータは速報値であり、申請・承認状況の更新により数値が変動する場合があります。', '表示用注記']
+    ['ダッシュボード注記', '本資料は、TeamSpiritに登録された残業申請・承認データに基づき、事前申請および事前承認の状況を集計したものです。\n勤怠締め前の数値は速報値であり、申請・承認状況の更新により変更となる場合があります。', '表示用注記']
   ];
 
   if (existing.length === 1 && isBlank_(existing[0][0])) {
@@ -1021,16 +1042,23 @@ function detectTargetPeriods_(rows, headerMap) {
   const idxApplyDateTime = headerMap[normalizeHeader_('残業申請:申請日時')];
   const idxStatus = headerMap[normalizeHeader_('残業申請:ステータス')];
   let latestDate = null;
+  let latestPastOrTodayDate = null;
+  const today = new Date();
+  const todayKey = formatDateForKey_(today);
   rows.forEach(row => {
     if (isExcludedStatus_(row[idxStatus]) || isBlank_(row[idxTargetCode]) || isBlank_(row[idxApplyDateTime])) return;
     const date = parseDate_(row[idxDate]);
     if (!date) return;
     if (!latestDate || date.getTime() > latestDate.getTime()) latestDate = date;
+    if (formatDateForKey_(date) <= todayKey && (!latestPastOrTodayDate || date.getTime() > latestPastOrTodayDate.getTime())) {
+      latestPastOrTodayDate = date;
+    }
   });
-  if (!latestDate) return { targetMonth: '', targetWeek: '', weekStart: null, weekEnd: null };
-  const week = getWeekInfo_(latestDate);
+  const targetDate = latestPastOrTodayDate || latestDate;
+  if (!targetDate) return { targetMonth: '', targetWeek: '', weekStart: null, weekEnd: null };
+  const week = getWeekInfo_(targetDate);
   return {
-    targetMonth: Utilities.formatDate(latestDate, TS_CONFIG.TIMEZONE, 'yyyy-MM'),
+    targetMonth: Utilities.formatDate(targetDate, TS_CONFIG.TIMEZONE, 'yyyy-MM'),
     targetWeek: week.weekKey,
     weekStart: week.weekStart,
     weekEnd: week.weekEnd
@@ -1688,7 +1716,7 @@ function writeCategoryDashboard_(sheet, title, category, deptRows, targetMonth, 
   }, { count: 0, beforeApply: 0, beforeApprove: 0, nextDayApprove: 0, approveDate: 0 });
 
   const note = settings.dashboardNote ||
-    'TeamSpirit上の残業申請・承認データをもとに、事前申請・事前承認の運用状況を可視化するものです。';
+    '本資料は、TeamSpiritに登録された残業申請・承認データに基づき、事前申請および事前承認の状況を集計したものです。';
 
   const summary = [
     [title],
@@ -1799,7 +1827,7 @@ function writeCategoryDashboardWithCompare_(sheet, title, category, currentDeptR
   const previousMap = buildDeptRowMap_(previousRows);
   const currentTotals = calcTotals_(currentRows);
   const previousTotals = calcTotals_(previousRows);
-  const note = settings.dashboardNote || 'TeamSpirit上の残業申請・承認データをもとに、事前申請・事前承認の運用状況を可視化するものです。';
+  const note = settings.dashboardNote || '本資料は、TeamSpiritに登録された残業申請・承認データに基づき、事前申請および事前承認の状況を集計したものです。';
   const currentApplyRate = safeRate_(currentTotals.beforeApply, currentTotals.count);
   const previousApplyRate = safeRate_(previousTotals.beforeApply, previousTotals.count);
   const currentApproveRate = safeRate_(currentTotals.beforeApprove, currentTotals.count);
@@ -2211,6 +2239,9 @@ function getSettings_() {
     alertThreshold: 0.8,
     updateSummarySheets: true,
     updateSheetDashboards: false,
+    viewerUrlToken: '',
+    gmailImportQuery: 'filename:csv newer_than:7d',
+    gmailImportEncoding: 'UTF-8',
     lastImportTime: '',
     dashboardNote: ''
   };
@@ -2225,8 +2256,8 @@ function getSettings_() {
     const key = String(values[r][0] || '').trim();
     const val = values[r][1];
 
-    if (key === '対象年月') settings.targetMonth = String(val || '').trim();
-    if (key === '対象週') settings.targetWeek = String(val || '').trim();
+    if (key === '対象年月') settings.targetMonth = formatMonthKeyForDisplay_(val);
+    if (key === '対象週') settings.targetWeek = formatWeekKeyForDisplay_(val);
     if (key === '週開始日') settings.weekStart = val;
     if (key === '週終了日') settings.weekEnd = val;
     if (key === '取込区分') settings.importType = val;
@@ -2234,6 +2265,9 @@ function getSettings_() {
     if (key === '承認率注意基準') settings.alertThreshold = parseRate_(val, 0.8);
     if (key === '集計シート更新') settings.updateSummarySheets = parseBooleanSetting_(val, true);
     if (key === 'シート版ダッシュボード更新') settings.updateSheetDashboards = parseBooleanSetting_(val, false);
+    if (key === '閲覧用URLトークン') settings.viewerUrlToken = String(val || '').trim();
+    if (key === 'Gmail取込検索条件') settings.gmailImportQuery = String(val || '').trim();
+    if (key === 'Gmail取込文字コード') settings.gmailImportEncoding = String(val || '').trim();
     if (key === '最終取込日時') settings.lastImportTime = val;
     if (key === 'ダッシュボード注記') settings.dashboardNote = val;
   }
@@ -2472,6 +2506,20 @@ function getPreviousMonthKey_(monthKey) {
   return Utilities.formatDate(d, TS_CONFIG.TIMEZONE, 'yyyy-MM');
 }
 
+function formatMonthKeyForDisplay_(value) {
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return Utilities.formatDate(value, TS_CONFIG.TIMEZONE, 'yyyy-MM');
+  }
+  return String(value || '').trim();
+}
+
+function formatWeekKeyForDisplay_(value) {
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return formatWeekKey_(value);
+  }
+  return String(value || '').trim();
+}
+
 function formatDateForDisplay_(date) {
   if (!date) return '';
   return Utilities.formatDate(date, TS_CONFIG.TIMEZONE, 'yyyy/MM/dd');
@@ -2619,6 +2667,166 @@ function getCategoryTotalCount_(deptRows, category) {
     .reduce((sum, row) => sum + Number(row[2] || 0), 0);
 }
 
+
+
+/**
+Webアプリ公開時の入口。
+URL開示用は閲覧用に固定し、admin表示はスプレッドシートメニューからのみ開く。
+*/
+function doGet(e) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  ensureSpreadsheetTimeZone_(ss);
+  ensureBaseSheets_(ss);
+
+  const settings = getSettings_();
+  const expectedToken = String(settings.viewerUrlToken || '').trim();
+  const actualToken = e && e.parameter ? String(e.parameter.token || '').trim() : '';
+
+  if (expectedToken && expectedToken !== actualToken) {
+    return HtmlService.createHtmlOutput('閲覧権限を確認できません。管理者にURLを確認してください。');
+  }
+
+  const template = HtmlService.createTemplateFromFile('Dashboard');
+  template.dashboardMode = 'viewer';
+  return template
+    .evaluate()
+    .setTitle('TeamSpirit 残業申請・承認ダッシュボード（閲覧用）');
+}
+
+/**
+デプロイ済みWebアプリの閲覧用URLを表示する。
+*/
+function showViewerDashboardUrl() {
+  const ui = SpreadsheetApp.getUi();
+  const url = getViewerDashboardUrl_();
+  if (!url) {
+    ui.alert('閲覧用URLを取得できません。Apps ScriptをWebアプリとしてデプロイしてから再度実行してください。');
+    return;
+  }
+  ui.alert('閲覧用ダッシュボードURL', url, ui.ButtonSet.OK);
+}
+
+function getViewerDashboardUrl_() {
+  const baseUrl = ScriptApp.getService().getUrl();
+  if (!baseUrl) return '';
+  const token = getSettings_().viewerUrlToken;
+  return token ? `${baseUrl}?mode=viewer&token=${encodeURIComponent(token)}` : `${baseUrl}?mode=viewer`;
+}
+
+
+function runGmailCsvImportFromMenu() {
+  const ui = SpreadsheetApp.getUi();
+  try {
+    const result = importLatestTeamSpiritCsvFromGmail();
+    if (result && result.skipped) {
+      ui.alert(result.message || '未取込のCSV添付メールはありません。');
+      return;
+    }
+    ui.alert('Gmail添付CSVの取り込みが完了しました。');
+  } catch (error) {
+    ui.alert('Gmail添付CSVの取り込みに失敗しました。\n\n' + (error && error.message ? error.message : error));
+    throw error;
+  }
+}
+
+/**
+Gmail添付CSVを1件取り込む。
+設定「Gmail取込検索条件」で対象メールを絞り込み、未取込のCSV添付のみ処理する。
+*/
+function importLatestTeamSpiritCsvFromGmail() {
+  const settings = getSettings_();
+  const query = settings.gmailImportQuery || 'filename:csv newer_than:7d';
+  const threads = GmailApp.search(query, 0, 10);
+  const processed = getProcessedGmailAttachmentIds_();
+
+  for (let t = 0; t < threads.length; t++) {
+    const messages = threads[t].getMessages();
+    for (let m = messages.length - 1; m >= 0; m--) {
+      const message = messages[m];
+      const attachments = message.getAttachments({ includeInlineImages: false, includeAttachments: true });
+      for (let a = 0; a < attachments.length; a++) {
+        const attachment = attachments[a];
+        const fileName = attachment.getName();
+        if (!/\.csv$/i.test(fileName)) continue;
+
+        const attachmentId = `${message.getId()}:${fileName}:${attachment.getBytes().length}`;
+        if (processed[attachmentId]) continue;
+
+        const csvText = attachment.getDataAsString(normalizeGmailImportCharset_(settings.gmailImportEncoding));
+        const result = importCsvTextPayload_({
+          fileName: fileName,
+          encoding: settings.gmailImportEncoding || 'UTF-8',
+          csvText: csvText
+        }, {
+          importType: 'メールCSV自動取込',
+          importMethod: 'Gmail添付CSV',
+          memoPrefix: `GmailメッセージID：${message.getId()}`
+        });
+
+        markProcessedGmailAttachmentId_(attachmentId);
+        return result;
+      }
+    }
+  }
+
+  appendImportLog_({
+    importType: 'メールCSV自動取込',
+    targetMonth: getSettingValue_('対象年月'),
+    targetWeek: getSettingValue_('対象週'),
+    fileName: '',
+    importMethod: 'Gmail添付CSV',
+    importCount: 0,
+    result: '対象なし',
+    memo: `検索条件：${query}`
+  });
+
+  return { ok: true, skipped: true, message: '未取込のCSV添付メールはありません。' };
+}
+
+/**
+Gmail自動取込の時間主導トリガーを作成する。
+*/
+function installHourlyGmailAutoImportTrigger() {
+  deleteGmailAutoImportTriggers_();
+  ScriptApp.newTrigger('importLatestTeamSpiritCsvFromGmail')
+    .timeBased()
+    .everyHours(1)
+    .create();
+}
+
+function deleteGmailAutoImportTriggers_() {
+  ScriptApp.getProjectTriggers().forEach(trigger => {
+    if (trigger.getHandlerFunction() === 'importLatestTeamSpiritCsvFromGmail') {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
+}
+
+function normalizeGmailImportCharset_(encoding) {
+  const text = String(encoding || '').trim().toLowerCase();
+  if (text === 'shift_jis' || text === 'shift-jis' || text === 'sjis' || text === 'cp932') {
+    return 'Shift_JIS';
+  }
+  return 'UTF-8';
+}
+
+function getProcessedGmailAttachmentIds_() {
+  const raw = PropertiesService.getDocumentProperties().getProperty('PROCESSED_GMAIL_ATTACHMENT_IDS') || '{}';
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
+    return {};
+  }
+}
+
+function markProcessedGmailAttachmentId_(attachmentId) {
+  const processed = getProcessedGmailAttachmentIds_();
+  processed[attachmentId] = Utilities.formatDate(new Date(), TS_CONFIG.TIMEZONE, 'yyyy/MM/dd HH:mm:ss');
+  const keys = Object.keys(processed).sort((a, b) => String(processed[b]).localeCompare(String(processed[a]))).slice(0, 200);
+  const compact = {};
+  keys.forEach(key => compact[key] = processed[key]);
+  PropertiesService.getDocumentProperties().setProperty('PROCESSED_GMAIL_ATTACHMENT_IDS', JSON.stringify(compact));
+}
 
 /**
 HTMLダッシュボードを表示
@@ -2773,8 +2981,8 @@ HTMLダッシュボード設定情報
 */
 function buildDashboardSettingsPayload_(settings) {
   return {
-    targetMonth: settings.targetMonth || '',
-    targetWeek: settings.targetWeek || '',
+    targetMonth: formatMonthKeyForDisplay_(settings.targetMonth),
+    targetWeek: formatWeekKeyForDisplay_(settings.targetWeek),
     weekStart: settings.weekStart ? formatDateForDisplay_(settings.weekStart) : '',
     weekEnd: settings.weekEnd ? formatDateForDisplay_(settings.weekEnd) : '',
     importType: settings.importType || '',
