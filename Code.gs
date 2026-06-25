@@ -83,7 +83,8 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('TeamSpirit取込')
     .addItem('ローカルCSVファイルを選択して取り込み', 'showLocalCsvUploadDialog')
-    .addItem('HTMLダッシュボードを開く', 'showHtmlDashboard')
+    .addItem('閲覧用ダッシュボードを開く', 'showHtmlDashboard')
+    .addItem('admin用ダッシュボードを開く', 'showHtmlAdminDashboard')
     .addItem('月次・週次を再集計', 'rebuildMonthlyAndWeeklyFromAccum')
     .addItem('エラー一覧を更新', 'refreshErrorListFromRaw')
     .addSeparator()
@@ -241,8 +242,12 @@ function importLocalCsvText(payload) {
     writeErrorSheet_(errors, targetMonth);
 
     const summaries = buildMonthlyWeeklySummaryBundle_(accumInfo.rows, accumInfo.headers, settings);
-    writeAllSummarySheets_(summaries);
-    writeAllDashboards_(summaries, settings);
+    if (settings.updateSummarySheets) {
+      writeAllSummarySheets_(summaries);
+    }
+    if (settings.updateSheetDashboards) {
+      writeAllDashboards_(summaries, settings);
+    }
 
     appendImportLog_({
       importType: 'ローカルCSV取込',
@@ -318,8 +323,12 @@ function rebuildMonthlyAndWeeklyFromAccum() {
     const settings = getSettings_();
     const summaries = buildMonthlyWeeklySummaryBundle_(accumInfo.rows, accumInfo.headers, settings);
 
-    writeAllSummarySheets_(summaries);
-    writeAllDashboards_(summaries, settings);
+    if (settings.updateSummarySheets) {
+      writeAllSummarySheets_(summaries);
+    }
+    if (settings.updateSheetDashboards) {
+      writeAllDashboards_(summaries, settings);
+    }
 
     appendImportLog_({
       importType: '月次・週次再集計',
@@ -432,16 +441,47 @@ function checkInitialSetup() {
 必要シートを作成
 */
 function ensureBaseSheets_(ss) {
-  Object.keys(TS_CONFIG.SHEETS).forEach(key => {
+  ensureSheetsByKeys_(ss, [
+    'RAW',
+    'ACCUM',
+    'SETTINGS',
+    'DEPT_MASTER',
+    'IMPORT_LOG',
+    'ERRORS'
+  ]);
+
+  ensureDefaultSettings_();
+  ensureDeptMasterHeader_();
+  ensureAccumHeader_();
+}
+
+function ensureSummarySheets_(ss) {
+  ensureSheetsByKeys_(ss, [
+    'SUMMARY_DEPT',
+    'SUMMARY_PERSON',
+    'SUMMARY_APPROVER',
+    'SUMMARY_WEEK_DEPT',
+    'SUMMARY_WEEK_PERSON',
+    'SUMMARY_WEEK_APPROVER'
+  ]);
+}
+
+function ensureDashboardOutputSheets_(ss) {
+  ensureSheetsByKeys_(ss, [
+    'DASHBOARD_STAFF',
+    'DASHBOARD_SALES',
+    'DASHBOARD_WEEK_STAFF',
+    'DASHBOARD_WEEK_SALES'
+  ]);
+}
+
+function ensureSheetsByKeys_(ss, sheetKeys) {
+  (sheetKeys || []).forEach(key => {
     const name = TS_CONFIG.SHEETS[key];
     if (!ss.getSheetByName(name)) {
       ss.insertSheet(name);
     }
   });
-
-  ensureDefaultSettings_();
-  ensureDeptMasterHeader_();
-  ensureAccumHeader_();
 }
 
 /**
@@ -463,6 +503,8 @@ function ensureDefaultSettings_() {
     ['営業拠点参考表示', true, 'TRUEなら営業部門も参考表示'],
     ['翌日承認判定', '暦日翌日23:59', '対象日の翌日23:59:59まで'],
     ['承認率注意基準', 0.8, '定時前承認率がこの値未満の場合、要確認'],
+    ['集計シート更新', true, 'TRUEならCSV取込・再集計時に集計_* シートへ書き出します。HTMLダッシュボードだけで運用する場合はFALSEで高速化できます。'],
+    ['シート版ダッシュボード更新', false, 'TRUEならダッシュボード_* シートへも書き出します。通常はHTMLダッシュボードを使うためFALSE推奨です。'],
     ['最終取込日時', '', '取込完了時刻'],
     ['ダッシュボード注記', 'TeamSpirit上の残業申請・承認データをもとに、事前申請・事前承認の運用状況を可視化するものです。\n勤怠締め前のデータは速報値であり、申請・承認状況の更新により数値が変動する場合があります。', '表示用注記']
   ];
@@ -761,7 +803,8 @@ function writeRawSheet_(sheet, processed) {
   ensureSheetSize_(sheet, output.length, output[0].length);
   prepareRawAccumSheetForWrite_(sheet, 1, output.length, output[0].length);
 
-  sheet.getRange(1, 1, output.length, output[0].length).setValues(output);
+  sheet.getRange(1, 1, output.length, output[0].length)
+    .setValues(sanitizeRawTextColumnsForSheet_(output, RAW_TEXT_COLUMN_COUNT));
   formatHeaderRow_(sheet, 1, output[0].length);
   sheet.setFrozenRows(1);
   formatRawAccumSheet_(sheet, output[0].length);
@@ -811,329 +854,73 @@ function ensureAccumHeader_() {
 
 /**
 取込データシートへ取込キー単位で追加・更新する。
-通常時は取込キー列だけを走査して差分更新し、既存重複キーを検出した場合のみ全体を正規化する。
+既存データと新規CSVをどちらもメモリ上のMapへ読み込み、V8内でUpsertを完結させる。
+最後にヘッダー付き巨大配列を1回だけsetValues()して完全上書きすることで、
+分割書き込み・セル走査・Sheets API batchUpdate・Dateシリアル手動変換を全廃する。
 */
 function upsertAccumulatedRows_(headers, newRows) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(TS_CONFIG.SHEETS.ACCUM);
   ensureAccumHeader_();
 
-  const keyCol = headers.indexOf('取込キー');
+  const expectedHeaders = TS_CONFIG.REQUIRED_HEADERS.concat(TS_CONFIG.HELPER_HEADERS);
+  const keyCol = expectedHeaders.indexOf('取込キー');
   if (keyCol < 0) {
     throw new Error('内部エラー：取込キー列が見つかりません。');
   }
 
-  const incoming = normalizeIncomingRowsByKey_(headers, newRows, keyCol);
-  const lastRow = sheet.getLastRow();
-
-  if (incoming.rows.length === 0) {
-    formatRawAccumSheet_(sheet, headers.length);
-    return { added: 0, updated: 0, skipped: incoming.skipped };
-  }
-
-  if (lastRow <= 1) {
-    ensureSheetSize_(sheet, incoming.rows.length + 1, headers.length);
-    prepareRawAccumSheetForWrite_(sheet, 2, incoming.rows.length, headers.length);
-    sheet.getRange(2, 1, incoming.rows.length, headers.length).setValues(incoming.rows);
-    formatRawAccumSheet_(sheet, headers.length);
-    SpreadsheetApp.flush();
-    return { added: incoming.rows.length, updated: 0, skipped: incoming.skipped };
-  }
-
-  const existingHeaders = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(v => String(v || '').trim());
-  const existingKeyCol = existingHeaders.indexOf('取込キー');
-
-  if (existingKeyCol < 0) {
-    return upsertAccumulatedRowsFullRewrite_(headers, newRows);
-  }
-
-  const existingKeysData = sheet.getRange(2, existingKeyCol + 1, lastRow - 1, 1).getValues();
-  const rowMap = {};
-  let duplicateExistingKeyFound = false;
-
-  existingKeysData.forEach((rowVal, index) => {
-    const key = String(rowVal[0] || '').trim();
-    if (!key) return;
-
-    if (rowMap[key] !== undefined) {
-      duplicateExistingKeyFound = true;
-      return;
-    }
-
-    rowMap[key] = index + 2;
-  });
-
-  // 過去データに重複キーが存在する場合、差分更新では二重計上を解消できないため、1回だけ全体を正規化する。
-  if (duplicateExistingKeyFound) {
-    return upsertAccumulatedRowsFullRewrite_(headers, newRows);
-  }
-
-  const rowsToAppend = [];
-  const rowsToUpdate = [];
-  let added = 0;
-  let updated = 0;
-
-  incoming.rows.forEach(row => {
-    const key = String(row[keyCol] || '').trim();
-
-    if (rowMap[key] !== undefined) {
-      rowsToUpdate.push({ rowNumber: rowMap[key], data: row });
-      updated++;
-    } else {
-      rowsToAppend.push(row);
-      rowMap[key] = -1;
-      added++;
-    }
-  });
-
-  writeSparseRowsInBatches_(sheet, rowsToUpdate, headers.length);
-
-  if (rowsToAppend.length > 0) {
-    ensureSheetSize_(sheet, lastRow + rowsToAppend.length, headers.length);
-    prepareRawAccumSheetForWrite_(sheet, lastRow + 1, rowsToAppend.length, headers.length);
-    sheet.getRange(lastRow + 1, 1, rowsToAppend.length, headers.length).setValues(rowsToAppend);
-  }
-
-  formatRawAccumSheet_(sheet, headers.length);
-  SpreadsheetApp.flush();
-
-  return { added, updated, skipped: incoming.skipped };
-}
-
-/**
-同一取込内の重複キーは最後の行を採用する。
-*/
-function normalizeIncomingRowsByKey_(headers, newRows, keyCol) {
-  const rows = [];
-  const indexByKey = {};
-  let skipped = 0;
-
-  (newRows || []).forEach(row => {
-    const key = String(row[keyCol] || '').trim();
-
-    if (!key) {
-      skipped++;
-      return;
-    }
-
-    const adjusted = adjustRowToHeaders_(row, headers, headers);
-
-    if (indexByKey[key] !== undefined) {
-      rows[indexByKey[key]] = adjusted;
-    } else {
-      indexByKey[key] = rows.length;
-      rows.push(adjusted);
-    }
-  });
-
-  return { rows, skipped };
-}
-
-/**
-既存データ側に重複キーがある場合の正規化用Upsert。
-全体を読み直して、取込キー単位で最後の行を採用する。
-*/
-function upsertAccumulatedRowsFullRewrite_(headers, newRows) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(TS_CONFIG.SHEETS.ACCUM);
-  ensureAccumHeader_();
-
-  const keyCol = headers.indexOf('取込キー');
   const values = sheet.getDataRange().getValues();
-  const currentHeaders = values.length > 0 ? values[0].map(v => String(v || '').trim()) : headers;
-  const currentKeyCol = currentHeaders.indexOf('取込キー');
-  const outputRows = [];
-  const rowMap = {};
+  const currentHeaders = values.length > 0 && values[0].some(v => !isBlank_(v))
+    ? values[0].map(v => String(v || '').trim())
+    : expectedHeaders;
 
-  if (values.length > 1 && currentKeyCol >= 0) {
+  const rowMap = new Map();
+  if (values.length > 1) {
     values.slice(1).forEach(row => {
-      const key = String(row[currentKeyCol] || '').trim();
+      if (!row.some(v => !isBlank_(v))) return;
+      const adjusted = migrateAccumRowToCurrentHeaders_(row, currentHeaders, expectedHeaders);
+      const key = String(adjusted[keyCol] || '').trim();
       if (!key) return;
-
-      const adjusted = adjustRowToHeaders_(row, currentHeaders, headers);
-
-      if (rowMap[key] !== undefined) {
-        outputRows[rowMap[key]] = adjusted;
-      } else {
-        rowMap[key] = outputRows.length;
-        outputRows.push(adjusted);
-      }
+      // 既存重複キーは最後の行を採用して正規化する。
+      rowMap.set(key, adjusted);
     });
   }
 
   let added = 0;
   let updated = 0;
   let skipped = 0;
+  const incomingKeySet = new Set();
 
   (newRows || []).forEach(row => {
-    const key = String(row[keyCol] || '').trim();
-
+    const adjusted = migrateAccumRowToCurrentHeaders_(row, headers, expectedHeaders);
+    const key = String(adjusted[keyCol] || '').trim();
     if (!key) {
       skipped++;
       return;
     }
 
-    const adjusted = adjustRowToHeaders_(row, headers, headers);
-
-    if (rowMap[key] !== undefined) {
-      outputRows[rowMap[key]] = adjusted;
+    const existedBeforeImport = rowMap.has(key) && !incomingKeySet.has(key);
+    if (existedBeforeImport) {
       updated++;
-    } else {
-      rowMap[key] = outputRows.length;
-      outputRows.push(adjusted);
+    } else if (!incomingKeySet.has(key)) {
       added++;
     }
+    incomingKeySet.add(key);
+    // 同一CSV内の重複キーも最後の行を採用する。
+    rowMap.set(key, adjusted);
   });
 
-  const output = [headers].concat(outputRows);
+  const output = [expectedHeaders].concat(Array.from(rowMap.values()));
   sheet.clearContents();
-  ensureSheetSize_(sheet, output.length, headers.length);
-  prepareRawAccumSheetForWrite_(sheet, 1, output.length, headers.length);
-  sheet.getRange(1, 1, output.length, headers.length).setValues(output);
-  formatHeaderRow_(sheet, 1, headers.length);
+  ensureSheetSize_(sheet, output.length, expectedHeaders.length);
+  prepareRawAccumSheetForWrite_(sheet, 1, output.length, expectedHeaders.length);
+  sheet.getRange(1, 1, output.length, expectedHeaders.length)
+    .setValues(sanitizeRawTextColumnsForSheet_(output, RAW_TEXT_COLUMN_COUNT));
+  formatHeaderRow_(sheet, 1, expectedHeaders.length);
   sheet.setFrozenRows(1);
-  formatRawAccumSheet_(sheet, headers.length);
+  formatRawAccumSheet_(sheet, expectedHeaders.length);
   SpreadsheetApp.flush();
 
   return { added, updated, skipped };
-}
-
-/**
-飛び飛びの更新行を書き込む。
-Advanced Sheets Service が有効な場合は values.batchUpdate を使い、無効・失敗時はネイティブGASへ安全にフォールバックする。
-*/
-function writeSparseRowsInBatches_(sheet, rowsToUpdate, columnCount) {
-  if (!rowsToUpdate || rowsToUpdate.length === 0) {
-    return;
-  }
-
-  rowsToUpdate.sort((a, b) => a.rowNumber - b.rowNumber);
-
-  if (canUseAdvancedSheetsService_()) {
-    try {
-      writeSparseRowsWithSheetsApi_(sheet, rowsToUpdate, columnCount);
-      return;
-    } catch (error) {
-      console.warn('Sheets API batchUpdate に失敗したため、ネイティブGAS書き込みへ切り替えます: ' + error.message);
-    }
-  }
-
-  writeSparseRowsNative_(sheet, rowsToUpdate, columnCount);
-}
-
-/**
-Advanced Sheets Service が使えるか確認する。
-Apps Script側で「サービス」から Google Sheets API を有効化していない環境では false を返す。
-*/
-function canUseAdvancedSheetsService_() {
-  return typeof Sheets !== 'undefined' &&
-    Sheets &&
-    Sheets.Spreadsheets &&
-    Sheets.Spreadsheets.Values &&
-    typeof Sheets.Spreadsheets.Values.batchUpdate === 'function';
-}
-
-/**
-Sheets API values.batchUpdate による高速更新。
-Date型はRAWで安全に書き込めるよう、シートのシリアル値へ変換する。
-*/
-function writeSparseRowsWithSheetsApi_(sheet, rowsToUpdate, columnCount) {
-  const spreadsheetId = SpreadsheetApp.getActiveSpreadsheet().getId();
-  const sheetName = sheet.getName().replace(/'/g, "''");
-  const endColLetter = columnToLetter_(columnCount);
-  const valueRanges = [];
-
-  let startRow = rowsToUpdate[0].rowNumber;
-  let batch = [convertRowForSheetsApi_(rowsToUpdate[0].data, columnCount)];
-  let previousRow = rowsToUpdate[0].rowNumber;
-
-  const pushToPayload = (rowNumber, values) => {
-    valueRanges.push({
-      range: `'${sheetName}'!A${rowNumber}:${endColLetter}${rowNumber + values.length - 1}`,
-      values
-    });
-  };
-
-  for (let i = 1; i < rowsToUpdate.length; i++) {
-    const item = rowsToUpdate[i];
-    const converted = convertRowForSheetsApi_(item.data, columnCount);
-
-    if (item.rowNumber === previousRow + 1) {
-      batch.push(converted);
-    } else {
-      pushToPayload(startRow, batch);
-      startRow = item.rowNumber;
-      batch = [converted];
-    }
-
-    previousRow = item.rowNumber;
-  }
-
-  pushToPayload(startRow, batch);
-
-  // rangesが極端に多い場合にリクエストサイズで落ちないよう、分割して送る。
-  const chunkSize = 500;
-  for (let i = 0; i < valueRanges.length; i += chunkSize) {
-    const chunk = valueRanges.slice(i, i + chunkSize);
-    Sheets.Spreadsheets.Values.batchUpdate({
-      valueInputOption: 'RAW',
-      data: chunk
-    }, spreadsheetId);
-  }
-}
-
-/**
-Advanced Serviceが使えない場合の標準書き込み。
-連続行ごとにまとめるため、1行ずつ更新するよりはI/Oを抑えられる。
-*/
-function writeSparseRowsNative_(sheet, rowsToUpdate, columnCount) {
-  let startRow = rowsToUpdate[0].rowNumber;
-  let batch = [rowsToUpdate[0].data];
-  let previousRow = rowsToUpdate[0].rowNumber;
-
-  for (let i = 1; i < rowsToUpdate.length; i++) {
-    const item = rowsToUpdate[i];
-
-    if (item.rowNumber === previousRow + 1) {
-      batch.push(item.data);
-    } else {
-      prepareRawAccumSheetForWrite_(sheet, startRow, batch.length, columnCount);
-      sheet.getRange(startRow, 1, batch.length, columnCount).setValues(batch);
-      startRow = item.rowNumber;
-      batch = [item.data];
-    }
-
-    previousRow = item.rowNumber;
-  }
-
-  prepareRawAccumSheetForWrite_(sheet, startRow, batch.length, columnCount);
-  sheet.getRange(startRow, 1, batch.length, columnCount).setValues(batch);
-}
-
-function convertRowForSheetsApi_(row, columnCount) {
-  const output = row.slice(0, columnCount);
-  while (output.length < columnCount) output.push('');
-  return output.map(convertValueForSheetsApi_);
-}
-
-function convertValueForSheetsApi_(value) {
-  if (value instanceof Date && !isNaN(value.getTime())) {
-    return dateToSheetsSerialNumber_(value);
-  }
-  if (value === null || value === undefined) {
-    return '';
-  }
-  return value;
-}
-
-/**
-Date型をGoogleスプレッドシートの日時シリアル値へ変換する。
-Asia/Tokyoで表示される年月日時分秒を維持するため、タイムゾーン上の各要素からシリアルを組み立てる。
-*/
-function dateToSheetsSerialNumber_(date) {
-  const tz = TS_CONFIG.TIMEZONE || Session.getScriptTimeZone();
-  const parts = Utilities.formatDate(date, tz, 'yyyy/MM/dd/HH/mm/ss').split('/').map(Number);
-  const asUtc = Date.UTC(parts[0], parts[1] - 1, parts[2], parts[3], parts[4], parts[5]);
-  const base = Date.UTC(1899, 11, 30, 0, 0, 0);
-  return (asUtc - base) / 86400000;
 }
 
 /**
@@ -1825,6 +1612,7 @@ function writeSummarySheets_(summaries) {
 月次・週次の集計シート書き込み
 */
 function writeAllSummarySheets_(bundle) {
+  ensureSummarySheets_(SpreadsheetApp.getActiveSpreadsheet());
   writeSummarySheets_(bundle.monthly.current);
   writeSummarySet_(
     bundle.weekly.current,
@@ -1958,6 +1746,7 @@ function writeCategoryDashboard_(sheet, title, category, deptRows, targetMonth, 
 */
 function writeAllDashboards_(bundle, settings) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  ensureDashboardOutputSheets_(ss);
   writeCategoryDashboardWithCompare_(
     ss.getSheetByName(TS_CONFIG.SHEETS.DASHBOARD_STAFF),
     '【月次】スタッフ部門：残業事前申請・事前承認 運用状況',
@@ -2236,6 +2025,20 @@ function prepareRawAccumSheetForWrite_(sheet, startRow, rowCount, columnCount) {
 /**
 集計・ダッシュボード等の表示用シートで、CSV由来文字列の数式インジェクションを防ぐ。
 */
+
+/**
+原本列（A:P）に限定して数式インジェクション対策を行う。
+補助列のDate/Boolean/Numberは型を維持し、DateオブジェクトをそのままsetValues()へ渡す。
+*/
+function sanitizeRawTextColumnsForSheet_(values, rawColumnCount) {
+  return (values || []).map(row => (row || []).map((value, index) => {
+    if (index < rawColumnCount) {
+      return sanitizeValueForSheet_(value);
+    }
+    return value;
+  }));
+}
+
 function sanitizeValuesForSheet_(values) {
   return (values || []).map(row => (row || []).map(sanitizeValueForSheet_));
 }
@@ -2406,6 +2209,8 @@ function getSettings_() {
     importType: '速報',
     closingTime: TS_CONFIG.DEFAULT_CLOSING_TIME,
     alertThreshold: 0.8,
+    updateSummarySheets: true,
+    updateSheetDashboards: false,
     lastImportTime: '',
     dashboardNote: ''
   };
@@ -2427,6 +2232,8 @@ function getSettings_() {
     if (key === '取込区分') settings.importType = val;
     if (key === '定時時刻') settings.closingTime = val || TS_CONFIG.DEFAULT_CLOSING_TIME;
     if (key === '承認率注意基準') settings.alertThreshold = parseRate_(val, 0.8);
+    if (key === '集計シート更新') settings.updateSummarySheets = parseBooleanSetting_(val, true);
+    if (key === 'シート版ダッシュボード更新') settings.updateSheetDashboards = parseBooleanSetting_(val, false);
     if (key === '最終取込日時') settings.lastImportTime = val;
     if (key === 'ダッシュボード注記') settings.dashboardNote = val;
   }
@@ -2759,6 +2566,29 @@ function parseRate_(value, defaultValue) {
 }
 
 /**
+設定シートのTRUE/FALSE値を安全に解釈する。
+*/
+function parseBooleanSetting_(value, defaultValue) {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (value === null || value === undefined || value === '') {
+    return defaultValue;
+  }
+
+  const text = String(value).trim().toLowerCase();
+  if (['true', '1', 'yes', 'y', 'on', 'する', 'はい'].includes(text)) {
+    return true;
+  }
+  if (['false', '0', 'no', 'n', 'off', 'しない', 'いいえ'].includes(text)) {
+    return false;
+  }
+
+  return defaultValue;
+}
+
+/**
 空欄判定
 */
 function isBlank_(value) {
@@ -2794,16 +2624,39 @@ function getCategoryTotalCount_(deptRows, category) {
 HTMLダッシュボードを表示
 */
 function showHtmlDashboard() {
+  showHtmlDashboardByMode_('viewer');
+}
+
+/**
+admin用HTMLダッシュボードを表示する。
+*/
+function showHtmlAdminDashboard() {
+  showHtmlDashboardByMode_('admin');
+}
+
+/**
+閲覧用/admin用で同じHTMLを使い、起動時のモードだけを差し込む。
+*/
+function showHtmlDashboardByMode_(mode) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   ensureSpreadsheetTimeZone_(ss);
   ensureBaseSheets_(ss);
 
-  const html = HtmlService
-    .createHtmlOutputFromFile('Dashboard')
+  const dashboardMode = normalizeDashboardMode_(mode);
+  const template = HtmlService.createTemplateFromFile('Dashboard');
+  template.dashboardMode = dashboardMode;
+  const titleSuffix = dashboardMode === 'admin' ? 'admin用' : '閲覧用';
+
+  const html = template
+    .evaluate()
     .setWidth(1280)
     .setHeight(820);
 
-  SpreadsheetApp.getUi().showModalDialog(html, 'TeamSpirit 残業申請・承認ダッシュボード');
+  SpreadsheetApp.getUi().showModalDialog(html, `TeamSpirit 残業申請・承認ダッシュボード（${titleSuffix}）`);
+}
+
+function normalizeDashboardMode_(mode) {
+  return String(mode || '').toLowerCase() === 'admin' ? 'admin' : 'viewer';
 }
 
 /**
@@ -2814,11 +2667,14 @@ HTMLダッシュボード用データ取得
 HTMLダッシュボード用データ取得
 画面が「読み込んでいます」のままにならないよう、サーバー側エラーも画面へ返す。
 */
-function getHtmlDashboardData() {
+function getHtmlDashboardData(mode) {
   const startedAt = new Date();
+  const dashboardMode = normalizeDashboardMode_(mode);
   let payload;
   try {
     payload = getHtmlDashboardDataCore_();
+    payload.mode = dashboardMode;
+    payload.isAdmin = dashboardMode === 'admin';
     payload.serverElapsedMs = new Date().getTime() - startedAt.getTime();
   } catch (error) {
     let settings = {};
@@ -2840,6 +2696,8 @@ function getHtmlDashboardData() {
       settings: settings,
       latestLog: {},
       errorCount: errorCount,
+      mode: dashboardMode,
+      isAdmin: dashboardMode === 'admin',
       serverElapsedMs: new Date().getTime() - startedAt.getTime()
     };
   }
@@ -2922,6 +2780,8 @@ function buildDashboardSettingsPayload_(settings) {
     importType: settings.importType || '',
     lastImportTime: settings.lastImportTime ? formatDateTimeForDisplay_(settings.lastImportTime) : '',
     alertThreshold: parseRate_(settings.alertThreshold, 0.8),
+    updateSummarySheets: !!settings.updateSummarySheets,
+    updateSheetDashboards: !!settings.updateSheetDashboards,
     dashboardNote: settings.dashboardNote || ''
   };
 }

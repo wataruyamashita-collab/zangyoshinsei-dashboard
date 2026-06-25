@@ -465,11 +465,11 @@
 <body>
   <div class="app-header">
     <div>
-      <div class="app-title">TeamSpirit 残業申請・承認ダッシュボード</div>
+      <div class="app-title" id="appTitle">TeamSpirit 残業申請・承認ダッシュボード</div>
       <div class="app-subtitle">残業申請・承認の事前運用状況を月次・週次で確認します。</div>
     </div>
     <div class="actions">
-      <button onclick="loadData()">再読み込み</button>
+      <button class="admin-action" onclick="loadData()">再読み込み</button>
       <button onclick="window.print()">表示中のタブを印刷</button>
       <button onclick="google.script.host.close()">閉じる</button>
     </div>
@@ -483,7 +483,7 @@
         <div class="meta-card">対象年月<b id="targetMonth"></b></div>
         <div class="meta-card">対象週<b id="targetWeek"></b></div>
         <div class="meta-card">最終取込日時<b id="lastImportTime"></b></div>
-        <div class="meta-card">エラー・確認件数<b id="errorCount"></b></div>
+        <div class="meta-card admin-only">エラー・確認件数<b id="errorCount"></b></div>
       </div>
 
       <div class="tabs">
@@ -494,6 +494,7 @@
       <div id="staff" class="section active"></div>
       <div id="sales" class="section"></div>
 
+      <div class="note admin-only" id="adminPanel"></div>
       <div class="note" id="dashboardNote"></div>
     </div>
   </div>
@@ -505,6 +506,7 @@
       NEUTRAL: 'neutral'
     };
 
+    const DASHBOARD_MODE = '<?= dashboardMode ?>';
     let dashboardData = null;
     let dashboardLoadTimer = null;
 
@@ -519,7 +521,7 @@
 
       if (typeof google === 'undefined' || !google.script || !google.script.run) {
         message.className = 'error-box';
-        message.textContent = 'このHTMLはブラウザで直接開けません。スプレッドシートのメニュー「TeamSpirit取込」→「HTMLダッシュボードを開く」から開いてください。';
+        message.textContent = 'このHTMLはブラウザで直接開けません。スプレッドシートのメニュー「TeamSpirit取込」→「閲覧用ダッシュボードを開く」から開いてください。';
         return;
       }
 
@@ -567,7 +569,7 @@
           message.className = 'error-box';
           message.textContent = 'ダッシュボードの読み込みでエラーが発生しました。\n\n' + (error && error.message ? error.message : error);
         })
-        .getHtmlDashboardData();
+        .getHtmlDashboardData(DASHBOARD_MODE);
     }
 
 
@@ -628,10 +630,21 @@
     }
 
     function render(data) {
+      const isAdmin = !!data.isAdmin;
+      document.body.dataset.mode = data.mode || DASHBOARD_MODE;
+      document.getElementById('appTitle').textContent = isAdmin
+        ? 'TeamSpirit 残業申請・承認ダッシュボード（admin用）'
+        : 'TeamSpirit 残業申請・承認ダッシュボード（閲覧用）';
+      Array.prototype.forEach.call(document.querySelectorAll('.admin-only, .admin-action'), function(el) {
+        el.style.display = isAdmin ? '' : 'none';
+      });
       document.getElementById('targetMonth').textContent = data.settings.targetMonth || '-';
       document.getElementById('targetWeek').textContent = data.settings.targetWeek || '-';
       document.getElementById('lastImportTime').textContent = data.settings.lastImportTime || '-';
       document.getElementById('errorCount').textContent = data.errorCount + '件';
+      document.getElementById('adminPanel').textContent = isAdmin
+        ? 'admin情報：エラー・確認件数 ' + data.errorCount + '件 ／ 最終取込 ' + (data.latestLog && data.latestLog.importTime ? data.latestLog.importTime : '-') + ' ／ サーバー処理 ' + (data.serverElapsedMs || 0) + 'ms'
+        : '';
       document.getElementById('dashboardNote').textContent = data.settings.dashboardNote || '';
 
       document.getElementById('staff').innerHTML = renderDepartment({
