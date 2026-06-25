@@ -495,7 +495,7 @@ function ensureDefaultSettings_() {
   const defaults = [
     ['設定項目', '設定値', '備考'],
     ['対象年月', Utilities.formatDate(new Date(), TS_CONFIG.TIMEZONE, 'yyyy-MM'), 'yyyy-MM形式。CSV取込時に自動判定します。'],
-    ['対象週', getWeekInfo_(new Date()).weekKey, 'yyyy/mm/dd週形式。CSV取込時に自動判定します。'],
+    ['対象週', getWeekInfo_(new Date()).weekKey, 'yyyy-MM-dd週形式。CSV取込時に自動判定します。'],
     ['週開始日', getWeekInfo_(new Date()).weekStart, '月曜始まり'],
     ['週終了日', getWeekInfo_(new Date()).weekEnd, '日曜終わり'],
     ['取込区分', '速報', '速報／確定'],
@@ -506,7 +506,7 @@ function ensureDefaultSettings_() {
     ['集計シート更新', true, 'TRUEならCSV取込・再集計時に集計_* シートへ書き出します。HTMLダッシュボードだけで運用する場合はFALSEで高速化できます。'],
     ['シート版ダッシュボード更新', false, 'TRUEならダッシュボード_* シートへも書き出します。通常はHTMLダッシュボードを使うためFALSE推奨です。'],
     ['最終取込日時', '', '取込完了時刻'],
-    ['ダッシュボード注記', 'TeamSpirit上の残業申請・承認データをもとに、事前申請・事前承認の運用状況を可視化するものです。\n勤怠締め前のデータは速報値であり、申請・承認状況の更新により数値が変動する場合があります。', '表示用注記']
+    ['ダッシュボード注記', '本資料は、TeamSpiritに登録された残業申請・承認データに基づき、事前申請および事前承認の状況を集計したものです。\n勤怠締め前の数値は速報値であり、申請・承認状況の更新により変更となる場合があります。', '表示用注記']
   ];
 
   if (existing.length === 1 && isBlank_(existing[0][0])) {
@@ -1021,16 +1021,23 @@ function detectTargetPeriods_(rows, headerMap) {
   const idxApplyDateTime = headerMap[normalizeHeader_('残業申請:申請日時')];
   const idxStatus = headerMap[normalizeHeader_('残業申請:ステータス')];
   let latestDate = null;
+  let latestPastOrTodayDate = null;
+  const today = new Date();
+  const todayKey = formatDateForKey_(today);
   rows.forEach(row => {
     if (isExcludedStatus_(row[idxStatus]) || isBlank_(row[idxTargetCode]) || isBlank_(row[idxApplyDateTime])) return;
     const date = parseDate_(row[idxDate]);
     if (!date) return;
     if (!latestDate || date.getTime() > latestDate.getTime()) latestDate = date;
+    if (formatDateForKey_(date) <= todayKey && (!latestPastOrTodayDate || date.getTime() > latestPastOrTodayDate.getTime())) {
+      latestPastOrTodayDate = date;
+    }
   });
-  if (!latestDate) return { targetMonth: '', targetWeek: '', weekStart: null, weekEnd: null };
-  const week = getWeekInfo_(latestDate);
+  const targetDate = latestPastOrTodayDate || latestDate;
+  if (!targetDate) return { targetMonth: '', targetWeek: '', weekStart: null, weekEnd: null };
+  const week = getWeekInfo_(targetDate);
   return {
-    targetMonth: Utilities.formatDate(latestDate, TS_CONFIG.TIMEZONE, 'yyyy-MM'),
+    targetMonth: Utilities.formatDate(targetDate, TS_CONFIG.TIMEZONE, 'yyyy-MM'),
     targetWeek: week.weekKey,
     weekStart: week.weekStart,
     weekEnd: week.weekEnd
@@ -1688,7 +1695,7 @@ function writeCategoryDashboard_(sheet, title, category, deptRows, targetMonth, 
   }, { count: 0, beforeApply: 0, beforeApprove: 0, nextDayApprove: 0, approveDate: 0 });
 
   const note = settings.dashboardNote ||
-    'TeamSpirit上の残業申請・承認データをもとに、事前申請・事前承認の運用状況を可視化するものです。';
+    '本資料は、TeamSpiritに登録された残業申請・承認データに基づき、事前申請および事前承認の状況を集計したものです。';
 
   const summary = [
     [title],
@@ -1799,7 +1806,7 @@ function writeCategoryDashboardWithCompare_(sheet, title, category, currentDeptR
   const previousMap = buildDeptRowMap_(previousRows);
   const currentTotals = calcTotals_(currentRows);
   const previousTotals = calcTotals_(previousRows);
-  const note = settings.dashboardNote || 'TeamSpirit上の残業申請・承認データをもとに、事前申請・事前承認の運用状況を可視化するものです。';
+  const note = settings.dashboardNote || '本資料は、TeamSpiritに登録された残業申請・承認データに基づき、事前申請および事前承認の状況を集計したものです。';
   const currentApplyRate = safeRate_(currentTotals.beforeApply, currentTotals.count);
   const previousApplyRate = safeRate_(previousTotals.beforeApply, previousTotals.count);
   const currentApproveRate = safeRate_(currentTotals.beforeApprove, currentTotals.count);
@@ -2225,8 +2232,8 @@ function getSettings_() {
     const key = String(values[r][0] || '').trim();
     const val = values[r][1];
 
-    if (key === '対象年月') settings.targetMonth = String(val || '').trim();
-    if (key === '対象週') settings.targetWeek = String(val || '').trim();
+    if (key === '対象年月') settings.targetMonth = formatMonthKeyForDisplay_(val);
+    if (key === '対象週') settings.targetWeek = formatWeekKeyForDisplay_(val);
     if (key === '週開始日') settings.weekStart = val;
     if (key === '週終了日') settings.weekEnd = val;
     if (key === '取込区分') settings.importType = val;
@@ -2470,6 +2477,20 @@ function getPreviousMonthKey_(monthKey) {
   const month = Number(String(monthKey).slice(5, 7));
   const d = new Date(year, month - 2, 1);
   return Utilities.formatDate(d, TS_CONFIG.TIMEZONE, 'yyyy-MM');
+}
+
+function formatMonthKeyForDisplay_(value) {
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return Utilities.formatDate(value, TS_CONFIG.TIMEZONE, 'yyyy-MM');
+  }
+  return String(value || '').trim();
+}
+
+function formatWeekKeyForDisplay_(value) {
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return formatWeekKey_(value);
+  }
+  return String(value || '').trim();
 }
 
 function formatDateForDisplay_(date) {
@@ -2773,8 +2794,8 @@ HTMLダッシュボード設定情報
 */
 function buildDashboardSettingsPayload_(settings) {
   return {
-    targetMonth: settings.targetMonth || '',
-    targetWeek: settings.targetWeek || '',
+    targetMonth: formatMonthKeyForDisplay_(settings.targetMonth),
+    targetWeek: formatWeekKeyForDisplay_(settings.targetWeek),
     weekStart: settings.weekStart ? formatDateForDisplay_(settings.weekStart) : '',
     weekEnd: settings.weekEnd ? formatDateForDisplay_(settings.weekEnd) : '',
     importType: settings.importType || '',
