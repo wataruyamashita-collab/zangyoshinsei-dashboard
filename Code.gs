@@ -2769,6 +2769,26 @@ function normalizeAppsScriptWebAppUrl_(url) {
     );
 }
 
+/**
+Apps Scriptがドメイン付きURL（/a/example.com/macros/s/... または
+/a/macros/example.com/s/...）を返す環境では、そのURLをコピーして開くと
+Googleドライブの「ファイルを開けません」画面へ遷移する場合がある。
+Webアプリとして安定して開ける標準URLへ正規化する。
+*/
+function normalizeAppsScriptWebAppUrl_(url) {
+  const value = String(url || '').trim();
+  if (!value) return '';
+  return value
+    .replace(
+      /^https:\/\/script\.google\.com\/a\/[^/]+\/macros\/s\//,
+      'https://script.google.com/macros/s/'
+    )
+    .replace(
+      /^https:\/\/script\.google\.com\/a\/macros\/[^/]+\/s\//,
+      'https://script.google.com/macros/s/'
+    );
+}
+
 
 function runGmailCsvImportFromMenu() {
   const ui = SpreadsheetApp.getUi();
