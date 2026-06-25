@@ -629,6 +629,41 @@
       };
     }
 
+
+    function formatMonthLabel(value) {
+      const d = parseDisplayDate(value);
+      if (d) return d.getFullYear() + '年' + (d.getMonth() + 1) + '月';
+      const text = String(value || '').trim();
+      const m = text.match(/^(\d{4})[-/](\d{1,2})/);
+      return m ? (Number(m[1]) + '年' + Number(m[2]) + '月') : text;
+    }
+
+    function formatWeekLabel(weekKey, weekStart, weekEnd) {
+      const start = parseDisplayDate(weekStart) || parseDisplayDate(String(weekKey || '').replace('週', ''));
+      const end = parseDisplayDate(weekEnd);
+      if (!start) return String(weekKey || '').trim();
+      const title = start.getFullYear() + '年' + (start.getMonth() + 1) + '月' + start.getDate() + '日週';
+      return end ? title + '（' + shortDate(start) + '〜' + shortDate(end) + '）' : title;
+    }
+
+    function shortDate(date) {
+      return (date.getMonth() + 1) + '/' + date.getDate();
+    }
+
+    function parseDisplayDate(value) {
+      if (!value) return null;
+      const text = String(value).trim().replace(/年|月/g, '/').replace(/日/g, '').replace(/-/g, '/');
+      let m = text.match(/^(\d{4})\/(\d{1,2})(?:\/(\d{1,2}))?/);
+      if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3] || 1));
+      m = text.match(/^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2})\s+(\d{4})/i);
+      if (m) {
+        const parsed = new Date(value);
+        if (!isNaN(parsed.getTime())) return parsed;
+      }
+      const parsed = new Date(value);
+      return isNaN(parsed.getTime()) ? null : parsed;
+    }
+
     function render(data) {
       const isAdmin = !!data.isAdmin;
       document.body.dataset.mode = data.mode || DASHBOARD_MODE;
@@ -638,8 +673,8 @@
       Array.prototype.forEach.call(document.querySelectorAll('.admin-only, .admin-action'), function(el) {
         el.style.display = isAdmin ? '' : 'none';
       });
-      document.getElementById('targetMonth').textContent = data.settings.targetMonth || '-';
-      document.getElementById('targetWeek').textContent = data.settings.targetWeek || '-';
+      document.getElementById('targetMonth').textContent = formatMonthLabel(data.settings.targetMonth) || '-';
+      document.getElementById('targetWeek').textContent = formatWeekLabel(data.settings.targetWeek, data.settings.weekStart, data.settings.weekEnd) || '-';
       document.getElementById('lastImportTime').textContent = data.settings.lastImportTime || '-';
       document.getElementById('errorCount').textContent = data.errorCount + '件';
       document.getElementById('adminPanel').textContent = isAdmin
@@ -678,23 +713,27 @@
     }
 
     function renderDepartment(props) {
+      const monthlyLabel = formatMonthLabel(props.monthlyLabel);
+      const previousMonthLabel = formatMonthLabel(props.previousMonthLabel);
+      const weeklyLabel = formatWeekLabel(props.weeklyLabel);
+      const previousWeekLabel = formatWeekLabel(props.previousWeekLabel);
       const monthly = renderPeriod({
         importance: 'main',
         title: '月次',
-        subtitle: props.isReference ? '営業部門は参考値です。' : '月次確認の中心指標です。',
+        subtitle: props.isReference ? '営業部門は参考集計です。' : '当月の集計結果です。',
         category: props.monthly,
-        label: props.monthlyLabel,
-        previousLabel: props.previousMonthLabel,
+        label: monthlyLabel,
+        previousLabel: previousMonthLabel,
         compareLabel: '前月'
       });
 
       const weekly = renderPeriod({
         importance: 'sub',
         title: '週次',
-        subtitle: '直近の運用状況を確認します。',
+        subtitle: '対象週の集計結果です。',
         category: props.weekly,
-        label: props.weeklyLabel,
-        previousLabel: props.previousWeekLabel,
+        label: weeklyLabel,
+        previousLabel: previousWeekLabel,
         compareLabel: '前週'
       });
 
@@ -702,7 +741,7 @@
         <div class="department-shell">
           <div class="department-head">
             <div class="department-title">${escapeHtml(props.title)}</div>
-            <div class="department-period">月次：${escapeHtml(props.monthlyLabel || '-')} ／ 週次：${escapeHtml(props.weeklyLabel || '-')}</div>
+            <div class="department-period">月次：${escapeHtml(monthlyLabel || '-')} ／ 週次：${escapeHtml(weeklyLabel || '-')}</div>
           </div>
           ${monthly}
           ${weekly}
@@ -720,7 +759,7 @@
             <div class="period-info">対象：${escapeHtml(props.label || '-')} ／ ${escapeHtml(props.compareLabel)}：${escapeHtml(props.previousLabel || '-')}</div>
           </div>
           ${renderKpis(props.category)}
-          ${renderAttention(props.category)}
+          ${renderAttention(props.category, props.title)}
           ${renderDetailTable(props.category, props.title + ' 部署別明細', props.compareLabel)}
         </div>
       `;
@@ -755,13 +794,14 @@
       `;
     }
 
-    function renderAttention(category) {
+    function renderAttention(category, periodTitle) {
+      const attentionTitle = (periodTitle || '') + '確認対象部署';
       const targets = attentionDepartments(category);
 
       if (targets.length === 0) {
         return `
           <div class="attention" style="background:#f0f8f2;border-color:#cce8d3;">
-            <div class="attention-title" style="color:var(--good);">確認対象部署</div>
+            <div class="attention-title" style="color:var(--good);">${escapeHtml(attentionTitle)}</div>
             <div class="attention-list">
               <span class="attention-chip" style="border-color:#b8dfc1;color:var(--good);">現時点で要確認部署はありません</span>
             </div>
@@ -771,7 +811,7 @@
 
       return `
         <div class="attention">
-          <div class="attention-title">確認対象部署</div>
+          <div class="attention-title">${escapeHtml(attentionTitle)}</div>
           <div class="attention-list">
             ${targets.map(row => `
               <span class="attention-chip">${escapeHtml(row.deptName)}：承認率 ${pct(row.beforeApproveRate)}／未承認 ${num(row.notApprovedCount)}件</span>
