@@ -539,7 +539,7 @@ function ensureDefaultSettings_() {
     ['定時時刻', TS_CONFIG.DEFAULT_CLOSING_TIME, '部署マスタに定時時刻がない場合の既定値'],
     ['営業拠点参考表示', true, 'TRUEなら営業部門も参考表示'],
     ['翌日承認判定', '暦日翌日23:59', '対象日の翌日23:59:59まで'],
-    ['承認率注意基準', 0.8, '定時前承認率がこの値未満の場合、要確認'],
+    ['承認率注意基準', 0.8, '当日定時前承認率がこの値未満の場合、要確認'],
     ['集計シート更新', true, 'TRUEならCSV取込・再集計時に集計_* シートへ書き出します。HTMLダッシュボードだけで運用する場合はFALSEで高速化できます。'],
     ['シート版ダッシュボード更新', false, 'TRUEならダッシュボード_* シートへも書き出します。通常はHTMLダッシュボードを使うためFALSE推奨です。'],
     ['閲覧用URLトークン', '', 'Webアプリの閲覧用URLを制限する任意トークン。空欄ならデプロイ設定の権限のみで制御します。'],
@@ -1657,11 +1657,11 @@ function writeSummarySheets_(summaries) {
       '部門区分',
       '申請件数',
       '定時前申請件数',
-      '定時前承認件数',
+      '当日定時前承認件数',
       '翌日承認件数',
       '承認日時入力件数',
       '定時前申請率',
-      '定時前承認率',
+      '当日定時前承認率',
       '翌日承認率',
       '未承認件数',
       '要確認'
@@ -1678,11 +1678,11 @@ function writeSummarySheets_(summaries) {
       '社員名',
       '申請件数',
       '定時前申請件数',
-      '定時前承認件数',
+      '当日定時前承認件数',
       '翌日承認件数',
       '承認日時入力件数',
       '定時前申請率',
-      '定時前承認率',
+      '当日定時前承認率',
       '翌日承認率'
     ]].concat(summaries.personRows),
     { percentColumns: [10, 11, 12] }
@@ -1694,10 +1694,10 @@ function writeSummarySheets_(summaries) {
       '部門区分',
       '承認者',
       '申請件数',
-      '定時前承認件数',
+      '当日定時前承認件数',
       '翌日承認件数',
       '承認日時入力件数',
-      '定時前承認率',
+      '当日定時前承認率',
       '翌日承認率'
     ]].concat(summaries.approverRows),
     { percentColumns: [7, 8] }
@@ -1724,21 +1724,21 @@ function writeSummarySet_(summaries, deptSheetName, personSheetName, approverShe
   writeTable_(
     ss.getSheetByName(deptSheetName),
     [[
-      '部署名','部門区分','申請件数','定時前申請件数','定時前承認件数','翌日承認件数','承認日時入力件数','定時前申請率','定時前承認率','翌日承認率','未承認件数','要確認'
+      '部署名','部門区分','申請件数','定時前申請件数','当日定時前承認件数','翌日承認件数','承認日時入力件数','定時前申請率','当日定時前承認率','翌日承認率','未承認件数','要確認'
     ]].concat(summaries.deptRows),
     { percentColumns: [8, 9, 10] }
   );
   writeTable_(
     ss.getSheetByName(personSheetName),
     [[
-      '部門区分','部署名','社員コード','社員名','申請件数','定時前申請件数','定時前承認件数','翌日承認件数','承認日時入力件数','定時前申請率','定時前承認率','翌日承認率'
+      '部門区分','部署名','社員コード','社員名','申請件数','定時前申請件数','当日定時前承認件数','翌日承認件数','承認日時入力件数','定時前申請率','当日定時前承認率','翌日承認率'
     ]].concat(summaries.personRows),
     { percentColumns: [10, 11, 12] }
   );
   writeTable_(
     ss.getSheetByName(approverSheetName),
     [[
-      '部門区分','承認者','申請件数','定時前承認件数','翌日承認件数','承認日時入力件数','定時前承認率','翌日承認率'
+      '部門区分','承認者','申請件数','当日定時前承認件数','翌日承認件数','承認日時入力件数','当日定時前承認率','翌日承認率'
     ]].concat(summaries.approverRows),
     { percentColumns: [7, 8] }
   );
@@ -1796,12 +1796,12 @@ function writeCategoryDashboard_(sheet, title, category, deptRows, targetMonth, 
     ['指標', '値'],
     ['申請件数', totals.count],
     ['定時前申請率', safeRate_(totals.beforeApply, totals.count)],
-    ['定時前承認率', safeRate_(totals.beforeApprove, totals.count)],
+    ['当日定時前承認率', safeRate_(totals.beforeApprove, totals.count)],
     ['翌日承認率', safeRate_(totals.nextDayApprove, totals.count)],
     ['未承認件数', totals.count - totals.approveDate],
     [],
     [`${category} 部署別明細`],
-    ['部署名', '申請件数', '定時前申請率', '定時前承認率', '翌日承認率', '未承認件数', '要確認']
+    ['部署名', '申請件数', '定時前申請率', '当日定時前承認率', '翌日承認率', '未承認件数', '要確認']
   ];
 
   const detail = rows
@@ -1912,12 +1912,12 @@ function writeCategoryDashboardWithCompare_(sheet, title, category, currentDeptR
     ['指標', '当期', compareLabel, '増減', '増減率／差分'],
     ['申請件数', currentTotals.count, previousTotals.count, currentTotals.count - previousTotals.count, safeGrowthRate_(currentTotals.count, previousTotals.count)],
     ['定時前申請率', currentApplyRate, previousApplyRate, currentApplyRate - previousApplyRate, currentApplyRate - previousApplyRate],
-    ['定時前承認率', currentApproveRate, previousApproveRate, currentApproveRate - previousApproveRate, currentApproveRate - previousApproveRate],
+    ['当日定時前承認率', currentApproveRate, previousApproveRate, currentApproveRate - previousApproveRate, currentApproveRate - previousApproveRate],
     ['翌日承認率', currentNextDayRate, previousNextDayRate, currentNextDayRate - previousNextDayRate, currentNextDayRate - previousNextDayRate],
     ['未承認件数', currentTotals.count - currentTotals.approveDate, previousTotals.count - previousTotals.approveDate, (currentTotals.count - currentTotals.approveDate) - (previousTotals.count - previousTotals.approveDate), ''],
     [],
     [`${category} 部署別明細`],
-    ['部署名', '申請件数', `${compareLabel}件数`, '増減', '増減率', '定時前申請率', `${compareLabel}差`, '定時前承認率', `${compareLabel}差`, '翌日承認率', `${compareLabel}差`, '未承認件数', '要確認']
+    ['部署名', '申請件数', `${compareLabel}件数`, '増減', '増減率', '定時前申請率', `${compareLabel}差`, '当日定時前承認率', `${compareLabel}差`, '翌日承認率', `${compareLabel}差`, '未承認件数', '要確認']
   ];
   const detail = currentRows.sort((a, b) => a[8] - b[8]).map(row => {
     const prev = previousMap[row[0]] || emptyDeptSummaryRow_(row[0], category);
@@ -3237,6 +3237,172 @@ function getHtmlDashboardDataCore_() {
       )
     }
   };
+}
+
+
+
+/**
+HTMLダッシュボードの部署別週次分析データを返す。
+既存の取込データと週次集計を再利用し、集計ロジック自体は変更しない。
+*/
+function getDeptWeeklyAnalysisData(deptName, weekStartDate, periodLabel) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  ensureSpreadsheetTimeZone_(ss);
+  ensureBaseSheets_(ss);
+
+  const settings = getSettings_();
+  const accumInfo = getAccumulatedDataInfo_();
+  const weekStart = parseDeptWeeklyAnalysisWeekStart_(weekStartDate || periodLabel || settings.targetWeek);
+  const targetWeekKey = weekStart ? formatWeekKey_(weekStart) : formatWeekKeyForDisplay_(settings.targetWeek);
+  const summaries = buildWeeklySummaries_(accumInfo.rows, targetWeekKey, settings, accumInfo.headers);
+  const deptMaster = getDeptMaster_();
+  const canonicalDeptName = getCanonicalDeptName_(deptName, deptMaster);
+  const summaryRow = (summaries.deptRows || []).find(row => getCanonicalDeptName_(row[0], deptMaster) === canonicalDeptName) ||
+    emptyDeptSummaryRow_(canonicalDeptName, '');
+  const detailRows = buildDeptWeeklyDetailRows_(accumInfo.rows, canonicalDeptName, weekStart || targetWeekKey, accumInfo.headers);
+
+  return {
+    analysisText: buildDeptWeeklyAnalysisText_(summaryRow, periodLabel || targetWeekKey),
+    detailRows: detailRows
+  };
+}
+
+function parseDeptWeeklyAnalysisWeekStart_(value) {
+  if (!value) return null;
+  const text = String(value).replace('週', '').trim();
+  const direct = parseDate_(text);
+  if (direct) return getWeekInfo_(direct).weekStart;
+  const match = text.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/);
+  return match ? getWeekInfo_(new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))).weekStart : null;
+}
+
+/** 部署別週次分析コメントを生成する。 */
+function buildDeptWeeklyAnalysisText_(summaryRow, periodLabel) {
+  const deptName = getDeptSummaryValue_(summaryRow, 'deptName', 0);
+  const count = toNumber_(getDeptSummaryValue_(summaryRow, 'count', 2));
+  const beforeApplyCount = toNumber_(getDeptSummaryValue_(summaryRow, 'beforeApplyCount', 3));
+  const beforeApproveCount = toNumber_(getDeptSummaryValue_(summaryRow, 'beforeApproveCount', 4));
+  const approveDateCount = toNumber_(getDeptSummaryValue_(summaryRow, 'approveDateCount', 6));
+  const beforeApplyRate = count ? beforeApplyCount / count : toNumber_(getDeptSummaryValue_(summaryRow, 'beforeApplyRate', 7));
+  const beforeApproveRate = count ? beforeApproveCount / count : toNumber_(getDeptSummaryValue_(summaryRow, 'beforeApproveRate', 8));
+  const notApprovedValue = getDeptSummaryValue_(summaryRow, 'notApprovedCount', 10);
+  const notApprovedCount = isBlank_(notApprovedValue) ? Math.max(count - approveDateCount, 0) : toNumber_(notApprovedValue);
+  const beforeApproveAmongBeforeApplyRate = beforeApplyCount ? beforeApproveCount / beforeApplyCount : 0;
+
+  let evaluation;
+  if (beforeApplyRate >= 0.9 && beforeApproveRate >= 0.9) {
+    evaluation = '申請・承認ともに非常に良好です。定時前に申請され、承認まで完了している割合が高く、安定した運用ができています。';
+  } else if (beforeApplyRate >= 0.85 && beforeApproveRate < 0.8) {
+    evaluation = '定時前申請率は高く、申請側の運用は概ねできています。一方で、当日定時前承認率が下がっているため、承認タイミングに課題があります。定時直前の申請や、承認者側の確認タイミングを確認してください。';
+  } else if (beforeApplyRate < 0.8 && beforeApproveRate < 0.8) {
+    evaluation = '申請・承認ともに改善余地があります。定時前申請の徹底と、承認者側の確認タイミングの両方を見直す必要があります。';
+  } else if (beforeApplyRate >= 0.9 && beforeApproveRate >= 0.8 && beforeApproveRate < 0.9) {
+    evaluation = '定時前申請率は非常に高く、申請側の運用は良好です。一方で、承認が17:30を少し過ぎている可能性があり、承認タイミングには改善余地があります。';
+  } else {
+    evaluation = '一部に改善余地があります。申請側の遅れなのか、承認側の遅れなのかを個別明細で確認してください。';
+  }
+
+  const approvalText = beforeApplyCount > 0
+    ? `定時前申請された${beforeApplyCount}件のうち、当日定時前承認されたものは${beforeApproveCount}件で、定時前申請後の当日定時前承認率は${formatPercentText_(beforeApproveAmongBeforeApplyRate)}です。`
+    : '定時前申請された申請はありません。定時前申請後の当日定時前承認率は該当なしです。';
+  const notApprovedText = notApprovedCount > 0
+    ? `未承認が${notApprovedCount}件あります。承認漏れ・処理遅れの確認が必要です。`
+    : '未承認はありません。';
+  const volumeText = count < 20
+    ? `なお、申請件数が${count}件と少ないため、1件の差で約${formatPercentText_(count ? 1 / count : 0).replace('%', '')}ポイント変動します。週次評価では、率だけでなく件数も併記して判断するのが妥当です。`
+    : `申請件数は${count}件あり、週次の傾向として一定程度参考にできます。`;
+
+  return [
+    `【${deptName}・${periodLabel || '対象週'}の分析】`,
+    '',
+    `申請件数は${count}件、定時前申請件数は${beforeApplyCount}件、定時前申請率は${formatPercentText_(beforeApplyRate)}です。`,
+    `当日定時前承認件数は${beforeApproveCount}件、当日定時前承認率は${formatPercentText_(beforeApproveRate)}です。`,
+    '',
+    evaluation,
+    '',
+    approvalText,
+    '',
+    notApprovedText,
+    '',
+    volumeText
+  ].join('\n');
+}
+
+function getDeptSummaryValue_(summaryRow, key, index) {
+  return Array.isArray(summaryRow) ? summaryRow[index] : (summaryRow && summaryRow[key]);
+}
+
+/** 対象部署・対象週の申請明細を抽出し、承認率を下げている理由を可視化する。 */
+function buildDeptWeeklyDetailRows_(records, deptName, weekStartDate, headers) {
+  const allHeaders = headers || TS_CONFIG.REQUIRED_HEADERS.concat(TS_CONFIG.HELPER_HEADERS);
+  const headerIndex = buildHeaderIndex_(allHeaders);
+  const getByName = (row, name) => getValueByHeader_(row, headerIndex, name);
+  const deptMaster = getDeptMaster_();
+  const canonicalDeptName = getCanonicalDeptName_(deptName, deptMaster);
+  const weekStart = parseDeptWeeklyAnalysisWeekStart_(weekStartDate);
+  const weekEnd = weekStart ? new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + 6, 23, 59, 59) : null;
+
+  return (records || []).filter(row => {
+    const targetFlag = getByName(row, '集計対象');
+    const isTarget = targetFlag === true || String(targetFlag).toUpperCase() === 'TRUE';
+    if (!isTarget) return false;
+    const employeeCode = String(getByName(row, '残業申請:申請対象社員コード') || '');
+    if (isExcludedCountEmployee_(employeeCode)) return false;
+    if (getCanonicalDeptName_(String(getByName(row, '部署名') || ''), deptMaster) !== canonicalDeptName) return false;
+    const targetDate = parseDate_(getByName(row, '日付'));
+    return !!targetDate && !!weekStart && targetDate.getTime() >= weekStart.getTime() && targetDate.getTime() <= weekEnd.getTime();
+  }).map(row => {
+    const targetDateValue = getByName(row, '日付');
+    const applyValue = getByName(row, '残業申請:申請日時') || getByName(row, '申請日時_DT');
+    const approveValue = getByName(row, '残業申請:承認日時') || getByName(row, '承認日時_DT');
+    const targetDate = parseDate_(targetDateValue);
+    const applyDateTime = parseDate_(applyValue);
+    const approveDateTime = parseDate_(approveValue);
+    const closingDateTime = targetDate ? combineDateAndTime_(targetDate, TS_CONFIG.DEFAULT_CLOSING_TIME) : null;
+    const beforeApply = !!(applyDateTime && closingDateTime && applyDateTime.getTime() <= closingDateTime.getTime());
+    const beforeApprove = !!(approveDateTime && closingDateTime && approveDateTime.getTime() <= closingDateTime.getTime());
+    const reason = buildApprovalReason_(targetDateValue, applyValue, approveValue);
+    return {
+      targetDate: formatDateForDisplay_(targetDate),
+      empName: String(getByName(row, '残業申請:申請対象社員名') || getByName(row, '社員名') || ''),
+      deptName: canonicalDeptName,
+      applyDateTime: formatDateTimeForDisplay_(applyDateTime || applyValue),
+      approveDateTime: formatDateTimeForDisplay_(approveDateTime || approveValue),
+      beforeApplyJudge: beforeApply ? 'OK' : 'NG',
+      beforeApproveJudge: beforeApprove ? 'OK' : 'NG',
+      notApprovedJudge: isBlank_(approveValue) ? '未承認' : '',
+      reason: reason
+    };
+  }).sort((a, b) => {
+    if (a.targetDate !== b.targetDate) return String(a.targetDate).localeCompare(String(b.targetDate), 'ja');
+    if (a.empName !== b.empName) return String(a.empName).localeCompare(String(b.empName), 'ja');
+    return String(a.applyDateTime).localeCompare(String(b.applyDateTime), 'ja');
+  });
+}
+
+function buildApprovalReason_(targetDate, applyDateTime, approveDateTime) {
+  if (isBlank_(approveDateTime)) return '未承認';
+  const target = parseDate_(targetDate);
+  const apply = parseDate_(applyDateTime);
+  const approve = parseDate_(approveDateTime);
+  if (!target || !apply || !approve) return '問題なし';
+  const closing = combineDateAndTime_(target, TS_CONFIG.DEFAULT_CLOSING_TIME);
+  const targetDay = new Date(target.getFullYear(), target.getMonth(), target.getDate()).getTime();
+  const approveDay = new Date(approve.getFullYear(), approve.getMonth(), approve.getDate()).getTime();
+  if (apply.getTime() > closing.getTime()) return '申請自体が定時後';
+  if (approveDay === targetDay && approve.getTime() > closing.getTime()) return '申請は定時前だが、承認が定時後';
+  if (approveDay > targetDay) return '申請は定時前だが、承認が翌日以降';
+  return '問題なし';
+}
+
+function formatPercentText_(rate) {
+  const n = Number(rate);
+  return (isNaN(n) ? 0 : n * 100).toFixed(1) + '%';
+}
+
+function toNumber_(value) {
+  const n = Number(value);
+  return isNaN(n) ? 0 : n;
 }
 
 /**

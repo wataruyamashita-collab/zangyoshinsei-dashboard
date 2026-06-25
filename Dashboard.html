@@ -416,6 +416,33 @@
       font-weight: 900;
     }
 
+    .analysis-button {
+      border: 1px solid #b9cbe0;
+      background: #eef4fb;
+      color: var(--blue);
+      border-radius: 999px;
+      padding: 5px 10px;
+      cursor: pointer;
+      font-weight: 900;
+    }
+
+    .analysis-panel {
+      border: 1px solid #d7e5f5;
+      border-radius: 12px;
+      background: #fbfdff;
+      margin-top: 12px;
+      padding: 12px;
+    }
+
+    .analysis-text {
+      white-space: pre-wrap;
+      line-height: 1.7;
+      margin-bottom: 12px;
+    }
+
+    .detail-warning { background: #fffbeb; }
+    .detail-unapproved { background: #fef2f2; }
+
     .note {
       color: var(--sub);
       font-size: 12px;
@@ -690,7 +717,8 @@
         previousMonthLabel: data.monthly.previousLabel,
         weeklyLabel: data.weekly.label,
         previousWeekLabel: data.weekly.previousLabel,
-        isReference: false
+        isReference: false,
+        tabName: 'staff'
       });
 
       document.getElementById('sales').innerHTML = renderDepartment({
@@ -701,7 +729,8 @@
         previousMonthLabel: data.monthly.previousLabel,
         weeklyLabel: data.weekly.label,
         previousWeekLabel: data.weekly.previousLabel,
-        isReference: true
+        isReference: true,
+        tabName: 'sales'
       });
     }
 
@@ -734,7 +763,8 @@
         category: props.weekly,
         label: weeklyLabel,
         previousLabel: previousWeekLabel,
-        compareLabel: '前週'
+        compareLabel: '前週',
+        analysisId: 'analysis-container-' + props.tabName
       });
 
       return `
@@ -760,7 +790,8 @@
           </div>
           ${renderKpis(props.category, props.compareLabel)}
           ${renderAttention(props.category, props.title)}
-          ${renderDetailTable(props.category, props.title + ' 部署別明細', props.compareLabel)}
+          ${renderDetailTable(props.category, props.title + ' 部署別明細', props.compareLabel, props.title, props.label)}
+          ${props.title === '週次' ? '<div id="' + escapeHtml(props.analysisId || 'analysis-container') + '" class="analysis-panel" style="display:none;"></div>' : ''}
         </div>
       `;
     }
@@ -772,7 +803,7 @@
       return `
         <div class="kpi-grid">
           ${renderKpi('定時前申請率', pct(c.beforeApplyRate), pt(d.beforeApplyRate), d.beforeApplyRate, Direction.HIGHER_IS_GOOD, true, compareLabel)}
-          ${renderKpi('定時前承認率', pct(c.beforeApproveRate), pt(d.beforeApproveRate), d.beforeApproveRate, Direction.HIGHER_IS_GOOD, true, compareLabel)}
+          ${renderKpi('当日定時前承認率', pct(c.beforeApproveRate), pt(d.beforeApproveRate), d.beforeApproveRate, Direction.HIGHER_IS_GOOD, true, compareLabel)}
           ${renderKpi('翌日承認率', pct(c.nextDayApproveRate), pt(d.nextDayApproveRate), d.nextDayApproveRate, Direction.HIGHER_IS_GOOD, true, compareLabel)}
         </div>
         <div class="support-grid">
@@ -833,11 +864,11 @@
         .slice(0, 5);
     }
 
-    function renderDetailTable(category, title, compareLabel) {
+    function renderDetailTable(category, title, compareLabel, periodTitle, periodLabel) {
       const rows = category.details || [];
 
       const body = rows.length === 0
-        ? `<tr><td colspan="7">対象データがありません。</td></tr>`
+        ? `<tr><td colspan="8">対象データがありません。</td></tr>`
         : rows.map(row => `
           <tr>
             <td>${escapeHtml(row.deptName)}</td>
@@ -847,6 +878,7 @@
             <td>${renderRateCell(row.nextDayApproveRate, row.nextDayApproveRateDiff, compareLabel)}</td>
             <td>${renderLowerGoodCountCell(row.notApprovedCount, row.notApprovedCountDiff, compareLabel)}</td>
             <td>${row.alert ? '<span class="alert">' + escapeHtml(row.alert) + '</span>' : '<span class="ok">良好</span>'}</td>
+            <td>${periodTitle === '週次' ? `<button class="analysis-button" onclick="loadDeptWeeklyAnalysis('${escapeJs(row.deptName)}', '${escapeJs(periodLabel || '')}', '${escapeJs((category && category.category) || '')}')">分析</button>` : '—'}</td>
           </tr>
         `).join('');
 
@@ -863,15 +895,78 @@
                   <th>部署名</th>
                   <th>申請件数</th>
                   <th>定時前申請率</th>
-                  <th>定時前承認率</th>
+                  <th>当日定時前承認率</th>
                   <th>翌日承認率</th>
                   <th>未承認</th>
                   <th>判定</th>
+                  <th>分析</th>
                 </tr>
               </thead>
               <tbody>${body}</tbody>
             </table>
           </div>
+        </div>
+      `;
+    }
+
+
+    function loadDeptWeeklyAnalysis(deptName, periodLabel, categoryName) {
+      const analysisId = categoryName === '営業拠点' ? 'analysis-container-sales' : 'analysis-container-staff';
+      const container = document.getElementById(analysisId);
+      if (!container) return;
+      container.style.display = 'block';
+      container.innerHTML = '<div class="analysis-text">分析データを読み込んでいます...</div>';
+
+      google.script.run
+        .withSuccessHandler(function(data) {
+          renderDeptWeeklyAnalysis(data, deptName, categoryName);
+        })
+        .withFailureHandler(function(error) {
+          container.innerHTML = '<div class="error-box">分析データの取得でエラーが発生しました。\n\n' + escapeHtml(error && error.message ? error.message : error) + '</div>';
+        })
+        .getDeptWeeklyAnalysisData(deptName, periodLabel, periodLabel);
+    }
+
+    function renderDeptWeeklyAnalysis(data, deptName, categoryName) {
+      const analysisId = categoryName === '営業拠点' ? 'analysis-container-sales' : 'analysis-container-staff';
+      const container = document.getElementById(analysisId);
+      const rows = data && Array.isArray(data.detailRows) ? data.detailRows : [];
+      const body = rows.length === 0
+        ? '<tr><td colspan="7">対象明細がありません。</td></tr>'
+        : rows.map(function(row) {
+          const klass = row.reason === '未承認' ? 'detail-unapproved' : (row.reason === '問題なし' ? '' : 'detail-warning');
+          return '<tr class="' + klass + '">' +
+            '<td>' + escapeHtml(row.targetDate) + '</td>' +
+            '<td>' + escapeHtml(row.empName) + '</td>' +
+            '<td>' + escapeHtml(row.applyDateTime) + '</td>' +
+            '<td>' + escapeHtml(row.approveDateTime) + '</td>' +
+            '<td>' + escapeHtml(row.beforeApplyJudge) + '</td>' +
+            '<td>' + escapeHtml(row.beforeApproveJudge) + '</td>' +
+            '<td>' + escapeHtml(row.reason) + '</td>' +
+          '</tr>';
+        }).join('');
+
+      container.innerHTML = `
+        <div class="table-head">
+          <div class="table-title">${escapeHtml(deptName)} 週次分析</div>
+          <div class="table-caption">対象者別明細で判定理由を確認できます</div>
+        </div>
+        <div class="analysis-text">${escapeHtml(data && data.analysisText ? data.analysisText : '')}</div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>対象日</th>
+                <th>対象者</th>
+                <th>申請日時</th>
+                <th>承認日時</th>
+                <th>定時前申請</th>
+                <th>当日定時前承認</th>
+                <th>判定理由</th>
+              </tr>
+            </thead>
+            <tbody>${body}</tbody>
+          </table>
         </div>
       `;
     }
