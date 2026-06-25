@@ -2851,7 +2851,11 @@ function normalizeAppsScriptWebAppUrl_(url) {
 function runGmailCsvImportFromMenu() {
   const ui = SpreadsheetApp.getUi();
   try {
-    const result = importLatestTeamSpiritCsvFromGmail({ recordGmailImportStatus: true, executionType: '手動取込' });
+    const result = importLatestTeamSpiritCsvFromGmail({
+      recordGmailImportStatus: true,
+      executionType: '手動取込',
+      includeProcessedAttachments: true
+    });
     if (result && result.skipped) {
       ui.alert(result.message || '未取込のCSV添付メールはありません。');
       return;
@@ -2882,6 +2886,7 @@ Gmail添付CSVを1件取り込む。
 function importLatestTeamSpiritCsvFromGmail(options) {
   const shouldRecordGmailStatus = options && options.recordGmailImportStatus === true;
   const executionType = options && options.executionType ? String(options.executionType) : '自動取込';
+  const includeProcessedAttachments = options && options.includeProcessedAttachments === true;
   const settings = getSettings_();
   const query = settings.gmailImportQuery || DEFAULT_GMAIL_IMPORT_QUERY;
   const threads = GmailApp.search(query, 0, 10);
@@ -2900,7 +2905,7 @@ function importLatestTeamSpiritCsvFromGmail(options) {
         if (!/\.csv$/i.test(fileName)) continue;
 
         const attachmentId = `${message.getId()}:${fileName}:${attachment.getBytes().length}`;
-        if (processed[attachmentId]) continue;
+        if (processed[attachmentId] && !includeProcessedAttachments) continue;
 
         const csvText = attachment.getDataAsString(normalizeGmailImportCharset_(settings.gmailImportEncoding));
         const result = importCsvTextPayload_({
@@ -2910,7 +2915,7 @@ function importLatestTeamSpiritCsvFromGmail(options) {
         }, {
           importType: executionType === '手動取込' ? 'メールCSV手動取込' : 'メールCSV自動取込',
           importMethod: 'Gmail添付CSV',
-          memoPrefix: `GmailメッセージID：${message.getId()}`
+          memoPrefix: `GmailメッセージID：${message.getId()}${processed[attachmentId] ? '／処理済み添付を再取込' : ''}`
         });
 
         markProcessedGmailAttachmentId_(attachmentId);
