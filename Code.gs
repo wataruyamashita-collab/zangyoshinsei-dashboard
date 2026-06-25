@@ -2703,14 +2703,40 @@ function showViewerDashboardUrl() {
     ui.alert('閲覧用URLを取得できません。Apps ScriptをWebアプリとしてデプロイしてから再度実行してください。');
     return;
   }
-  ui.alert('閲覧用ダッシュボードURL', url, ui.ButtonSet.OK);
+  ui.alert(
+    '閲覧用ダッシュボードURL',
+    url + '\n\n' +
+      '※ コピーしたURLに「script.google.com/a/...」形式のドメイン付きURLが含まれる場合、Googleドライブの「ファイルを開けません」画面に遷移することがあります。' +
+      '\n上記の「script.google.com/macros/s/」形式のURLを使用してください。',
+    ui.ButtonSet.OK
+  );
 }
 
 function getViewerDashboardUrl_() {
-  const baseUrl = ScriptApp.getService().getUrl();
+  const baseUrl = normalizeAppsScriptWebAppUrl_(ScriptApp.getService().getUrl());
   if (!baseUrl) return '';
   const token = getSettings_().viewerUrlToken;
   return token ? `${baseUrl}?mode=viewer&token=${encodeURIComponent(token)}` : `${baseUrl}?mode=viewer`;
+}
+
+/**
+Apps Scriptがドメイン付きURL（/a/example.com/macros/s/... または
+/a/macros/example.com/s/...）を返す環境では、そのURLをコピーして開くと
+Googleドライブの「ファイルを開けません」画面へ遷移する場合がある。
+Webアプリとして安定して開ける標準URLへ正規化する。
+*/
+function normalizeAppsScriptWebAppUrl_(url) {
+  const value = String(url || '').trim();
+  if (!value) return '';
+  return value
+    .replace(
+      /^https:\/\/script\.google\.com\/a\/[^/]+\/macros\/s\//,
+      'https://script.google.com/macros/s/'
+    )
+    .replace(
+      /^https:\/\/script\.google\.com\/a\/macros\/[^/]+\/s\//,
+      'https://script.google.com/macros/s/'
+    );
 }
 
 
