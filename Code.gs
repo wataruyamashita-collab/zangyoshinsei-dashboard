@@ -2979,7 +2979,7 @@ function runGmailAutoImportTrigger() {
 
 function isTargetTeamSpiritReportSubject_(subject) {
   const normalizedSubject = normalizeGmailSubject_(subject);
-  return GMAIL_REPORT_SUBJECT_KEYWORDS.every(keyword => normalizedSubject.includes(normalizeGmailSubject_(keyword)));
+  return GMAIL_REPORT_SUBJECT_KEYWORDS.some(keyword => normalizedSubject.includes(normalizeGmailSubject_(keyword)));
 }
 
 function normalizeGmailSubject_(subject) {
