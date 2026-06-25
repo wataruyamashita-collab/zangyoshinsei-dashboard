@@ -2707,10 +2707,24 @@ function showViewerDashboardUrl() {
 }
 
 function getViewerDashboardUrl_() {
-  const baseUrl = ScriptApp.getService().getUrl();
+  const baseUrl = normalizeAppsScriptWebAppUrl_(ScriptApp.getService().getUrl());
   if (!baseUrl) return '';
   const token = getSettings_().viewerUrlToken;
   return token ? `${baseUrl}?mode=viewer&token=${encodeURIComponent(token)}` : `${baseUrl}?mode=viewer`;
+}
+
+/**
+Apps Scriptがドメイン付きURL（/a/example.com/macros/s/...）を返す環境では、
+そのURLをコピーして開くとGoogleドライブの「ファイルを開けません」画面へ
+遷移する場合がある。Webアプリとして安定して開ける標準URLへ正規化する。
+*/
+function normalizeAppsScriptWebAppUrl_(url) {
+  const value = String(url || '').trim();
+  if (!value) return '';
+  return value.replace(
+    /^https:\/\/script\.google\.com\/a\/[^/]+\/macros\/s\//,
+    'https://script.google.com/macros/s/'
+  );
 }
 
 
