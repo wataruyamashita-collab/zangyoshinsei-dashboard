@@ -870,11 +870,11 @@ const HTML_DASHBOARD = String.raw`<!DOCTYPE html>
 <body>
   <div class="app-header">
     <div>
-      <div class="app-title">TeamSpirit 残業申請・承認ダッシュボード</div>
+      <div class="app-title" id="appTitle">TeamSpirit 残業申請・承認ダッシュボード</div>
       <div class="app-subtitle">残業申請・承認の事前運用状況を月次・週次で確認します。</div>
     </div>
     <div class="actions">
-      <button onclick="loadData()">再読み込み</button>
+      <button class="admin-action" onclick="loadData()">再読み込み</button>
       <button onclick="window.print()">表示中のタブを印刷</button>
       <button onclick="google.script.host.close()">閉じる</button>
     </div>
@@ -888,7 +888,7 @@ const HTML_DASHBOARD = String.raw`<!DOCTYPE html>
         <div class="meta-card">対象年月<b id="targetMonth"></b></div>
         <div class="meta-card">対象週<b id="targetWeek"></b></div>
         <div class="meta-card">最終取込日時<b id="lastImportTime"></b></div>
-        <div class="meta-card">エラー・確認件数<b id="errorCount"></b></div>
+        <div class="meta-card admin-only">エラー・確認件数<b id="errorCount"></b></div>
       </div>
 
       <div class="tabs">
@@ -899,6 +899,7 @@ const HTML_DASHBOARD = String.raw`<!DOCTYPE html>
       <div id="staff" class="section active"></div>
       <div id="sales" class="section"></div>
 
+      <div class="note admin-only" id="adminPanel"></div>
       <div class="note" id="dashboardNote"></div>
     </div>
   </div>
@@ -910,6 +911,7 @@ const HTML_DASHBOARD = String.raw`<!DOCTYPE html>
       NEUTRAL: 'neutral'
     };
 
+    const DASHBOARD_MODE = '__DASHBOARD_MODE__';
     let dashboardData = null;
     let dashboardLoadTimer = null;
 
@@ -924,7 +926,7 @@ const HTML_DASHBOARD = String.raw`<!DOCTYPE html>
 
       if (typeof google === 'undefined' || !google.script || !google.script.run) {
         message.className = 'error-box';
-        message.textContent = 'このHTMLはブラウザで直接開けません。スプレッドシートのメニュー「TeamSpirit取込」→「HTMLダッシュボードを開く」から開いてください。';
+        message.textContent = 'このHTMLはブラウザで直接開けません。スプレッドシートのメニュー「TeamSpirit取込」→「閲覧用ダッシュボードを開く」から開いてください。';
         return;
       }
 
@@ -972,7 +974,7 @@ const HTML_DASHBOARD = String.raw`<!DOCTYPE html>
           message.className = 'error-box';
           message.textContent = 'ダッシュボードの読み込みでエラーが発生しました。\n\n' + (error && error.message ? error.message : error);
         })
-        .getHtmlDashboardData();
+        .getHtmlDashboardData(DASHBOARD_MODE);
     }
 
 
@@ -1033,10 +1035,21 @@ const HTML_DASHBOARD = String.raw`<!DOCTYPE html>
     }
 
     function render(data) {
+      const isAdmin = !!data.isAdmin;
+      document.body.dataset.mode = data.mode || DASHBOARD_MODE;
+      document.getElementById('appTitle').textContent = isAdmin
+        ? 'TeamSpirit 残業申請・承認ダッシュボード（admin用）'
+        : 'TeamSpirit 残業申請・承認ダッシュボード（閲覧用）';
+      Array.prototype.forEach.call(document.querySelectorAll('.admin-only, .admin-action'), function(el) {
+        el.style.display = isAdmin ? '' : 'none';
+      });
       document.getElementById('targetMonth').textContent = data.settings.targetMonth || '-';
       document.getElementById('targetWeek').textContent = data.settings.targetWeek || '-';
       document.getElementById('lastImportTime').textContent = data.settings.lastImportTime || '-';
       document.getElementById('errorCount').textContent = data.errorCount + '件';
+      document.getElementById('adminPanel').textContent = isAdmin
+        ? 'admin情報：エラー・確認件数 ' + data.errorCount + '件 ／ 最終取込 ' + (data.latestLog && data.latestLog.importTime ? data.latestLog.importTime : '-') + ' ／ サーバー処理 ' + (data.serverElapsedMs || 0) + 'ms'
+        : '';
       document.getElementById('dashboardNote').textContent = data.settings.dashboardNote || '';
 
       document.getElementById('staff').innerHTML = renderDepartment({
@@ -1317,7 +1330,8 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('TeamSpirit取込')
     .addItem('ローカルCSVファイルを選択して取り込み', 'showLocalCsvUploadDialog')
-    .addItem('HTMLダッシュボードを開く', 'showHtmlDashboard')
+    .addItem('閲覧用ダッシュボードを開く', 'showHtmlDashboard')
+    .addItem('admin用ダッシュボードを開く', 'showHtmlAdminDashboard')
     .addItem('月次・週次を再集計', 'rebuildMonthlyAndWeeklyFromAccum')
     .addItem('エラー一覧を更新', 'refreshErrorListFromRaw')
     .addSeparator()
@@ -3787,16 +3801,38 @@ function getCategoryTotalCount_(deptRows, category) {
 HTMLダッシュボードを表示
 */
 function showHtmlDashboard() {
+  showHtmlDashboardByMode_('viewer');
+}
+
+/**
+admin用HTMLダッシュボードを表示する。
+*/
+function showHtmlAdminDashboard() {
+  showHtmlDashboardByMode_('admin');
+}
+
+/**
+閲覧用/admin用で同じHTMLを使い、起動時のモードだけを差し込む。
+*/
+function showHtmlDashboardByMode_(mode) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   ensureSpreadsheetTimeZone_(ss);
   ensureBaseSheets_(ss);
 
+  const dashboardMode = normalizeDashboardMode_(mode);
+  const htmlSource = HTML_DASHBOARD.replace(/__DASHBOARD_MODE__/g, dashboardMode);
+  const titleSuffix = dashboardMode === 'admin' ? 'admin用' : '閲覧用';
+
   const html = HtmlService
-    .createHtmlOutput(HTML_DASHBOARD)
+    .createHtmlOutput(htmlSource)
     .setWidth(1280)
     .setHeight(820);
 
-  SpreadsheetApp.getUi().showModalDialog(html, 'TeamSpirit 残業申請・承認ダッシュボード');
+  SpreadsheetApp.getUi().showModalDialog(html, `TeamSpirit 残業申請・承認ダッシュボード（${titleSuffix}）`);
+}
+
+function normalizeDashboardMode_(mode) {
+  return String(mode || '').toLowerCase() === 'admin' ? 'admin' : 'viewer';
 }
 
 /**
@@ -3807,11 +3843,14 @@ HTMLダッシュボード用データ取得
 HTMLダッシュボード用データ取得
 画面が「読み込んでいます」のままにならないよう、サーバー側エラーも画面へ返す。
 */
-function getHtmlDashboardData() {
+function getHtmlDashboardData(mode) {
   const startedAt = new Date();
+  const dashboardMode = normalizeDashboardMode_(mode);
   let payload;
   try {
     payload = getHtmlDashboardDataCore_();
+    payload.mode = dashboardMode;
+    payload.isAdmin = dashboardMode === 'admin';
     payload.serverElapsedMs = new Date().getTime() - startedAt.getTime();
   } catch (error) {
     let settings = {};
@@ -3833,6 +3872,8 @@ function getHtmlDashboardData() {
       settings: settings,
       latestLog: {},
       errorCount: errorCount,
+      mode: dashboardMode,
+      isAdmin: dashboardMode === 'admin',
       serverElapsedMs: new Date().getTime() - startedAt.getTime()
     };
   }
