@@ -2703,7 +2703,13 @@ function showViewerDashboardUrl() {
     ui.alert('閲覧用URLを取得できません。Apps ScriptをWebアプリとしてデプロイしてから再度実行してください。');
     return;
   }
-  ui.alert('閲覧用ダッシュボードURL', url, ui.ButtonSet.OK);
+  ui.alert(
+    '閲覧用ダッシュボードURL',
+    url + '\n\n' +
+      '※ コピーしたURLに「script.google.com/a/ドメイン名/macros/s/」が含まれる場合、Googleドライブの「ファイルを開けません」画面に遷移することがあります。' +
+      '\n上記の「script.google.com/macros/s/」形式のURLを使用してください。',
+    ui.ButtonSet.OK
+  );
 }
 
 function getViewerDashboardUrl_() {
