@@ -83,6 +83,7 @@ const LEGACY_GMAIL_IMPORT_QUERY_BARE_SUBJECT = '申請確認日次勤怠デー�
 const DEFAULT_GMAIL_IMPORT_QUERY = 'filename:csv newer_than:30d';
 const GMAIL_REPORT_SUBJECT_KEYWORDS = ['レポート結果', '申請確認日次勤怠データ', 'タジマ'];
 const LEGACY_GMAIL_AUTO_IMPORT_SETTING_KEYS = [];
+const EXCLUDED_COUNT_EMPLOYEE_CODES = ['205401', '205402', '207014', '207015'];
 
 /**
 スプレッドシートを開いたときにメニューを追加
@@ -179,6 +180,14 @@ function safeParseNumber_(value) {
 
   const n = Number(value);
   return isNaN(n) ? 0 : n;
+}
+
+/**
+集計対象から除外する従業員コードかどうかを判定する。
+*/
+function isExcludedCountEmployee_(employeeCode) {
+  const normalizedCode = String(employeeCode || '').trim();
+  return EXCLUDED_COUNT_EMPLOYEE_CODES.includes(normalizedCode);
 }
 
 
@@ -770,6 +779,7 @@ function buildProcessedRows_(rows, headerMap, deptMaster, targetMonth, settings)
     const rowMonth = targetDate ? Utilities.formatDate(targetDate, TS_CONFIG.TIMEZONE, 'yyyy-MM') : '';
     const week = targetDate ? getWeekInfo_(targetDate) : { weekKey: '', weekStart: '', weekEnd: '' };
     const excludedStatus = isExcludedStatus_(status);
+    const excludedCountEmployee = isExcludedCountEmployee_(targetCode);
 
     const isApplicationLike =
       !!targetDate &&
@@ -777,7 +787,7 @@ function buildProcessedRows_(rows, headerMap, deptMaster, targetMonth, settings)
       !isBlank_(applyDateTimeValue) &&
       !!applyDateTime;
 
-    const isTarget = isApplicationLike && !excludedStatus;
+    const isTarget = isApplicationLike && !excludedStatus && !excludedCountEmployee;
 
     const category = getDeptCategory_(String(deptName || ''), deptMaster);
     const closingTime = getClosingTimeForDept_(String(deptName || ''), deptMaster, settings.closingTime);
@@ -1172,10 +1182,15 @@ function buildMonthlyWeeklySummaryBundle_(rows, headers, settings) {
       return;
     }
 
+    const employeeCode = String(row[indexes.employeeCode] || '');
+    if (isExcludedCountEmployee_(employeeCode)) {
+      return;
+    }
+
     const packet = {
       deptName: getCanonicalDeptName_(String(row[indexes.deptName] || ''), deptMaster),
       category: String(row[indexes.category] || ''),
-      employeeCode: String(row[indexes.employeeCode] || ''),
+      employeeCode: employeeCode,
       employeeName: String(row[indexes.employeeName] || ''),
       approver: String(row[indexes.approver] || ''),
       beforeApply: safeParseNumber_(row[indexes.beforeApply]),
@@ -1372,11 +1387,16 @@ function buildSummariesNoPeriodFilter_(rawRows, settings, customHeaders) {
   let totalImportCount = 0;
 
   rawRows.forEach(row => {
-    totalImportCount++;
     const deptName = String(getByName(row, '部署名') || '');
     const category = String(getByName(row, '部門区分') || '');
     const employeeCode = String(getByName(row, '残業申請:申請対象社員コード') || '');
     const employeeName = String(getByName(row, '残業申請:申請対象社員名') || '');
+    if (isExcludedCountEmployee_(employeeCode)) {
+      return;
+    }
+
+    totalImportCount++;
+
     const approver = String(getByName(row, '残業申請:承認者') || '');
     const beforeApply = Number(getByName(row, '定時前申請') || 0);
     const beforeApprove = Number(getByName(row, '定時前承認') || 0);
@@ -1470,12 +1490,16 @@ function buildSummaries_(rawRows, targetMonth, settings, customHeaders) {
       return;
     }
 
-    totalImportCount++;
-
     const deptName = String(getByName(row, '部署名') || '');
     const category = String(getByName(row, '部門区分') || '');
     const employeeCode = String(getByName(row, '残業申請:申請対象社員コード') || '');
     const employeeName = String(getByName(row, '残業申請:申請対象社員名') || '');
+    if (isExcludedCountEmployee_(employeeCode)) {
+      return;
+    }
+
+    totalImportCount++;
+
     const approver = String(getByName(row, '残業申請:承認者') || '');
 
     const beforeApply = Number(getByName(row, '定時前申請') || 0);
