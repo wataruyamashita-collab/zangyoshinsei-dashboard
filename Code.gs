@@ -78,8 +78,10 @@ const DANGEROUS_SHEET_TEXT_PREFIX = /^[=+\-@\t\r]/;
 const LEGACY_GMAIL_IMPORT_QUERY = 'filename:csv newer_than:7d';
 const LEGACY_GMAIL_IMPORT_QUERY_WITH_KEYWORD = 'filename:csv newer_than:7d TeamSpirit';
 const LEGACY_GMAIL_IMPORT_QUERY_WITH_SUBJECT = 'filename:csv newer_than:7d subject:"申請確認日次勤怠データ"';
+const LEGACY_GMAIL_IMPORT_QUERY_BARE_SUBJECT = '申請確認日次勤怠データ';
 const DEFAULT_GMAIL_IMPORT_QUERY = 'filename:csv newer_than:7d subject:"レポート結果"';
 const GMAIL_REPORT_SUBJECT_KEYWORDS = ['レポート結果', '申請確認日次勤怠データ', 'タジマ'];
+const LEGACY_GMAIL_AUTO_IMPORT_SETTING_KEYS = ['Gmail自動取込結果', 'Gmail自動取込メッセージ', 'Gmail自動取込日時'];
 
 /**
 スプレッドシートを開いたときにメニューを追加
@@ -573,11 +575,26 @@ function ensureDefaultSettings_() {
       const currentValue = String(sheet.getRange(settingRow, 2).getValue() || '').trim();
       if (currentValue === LEGACY_GMAIL_IMPORT_QUERY ||
           currentValue === LEGACY_GMAIL_IMPORT_QUERY_WITH_KEYWORD ||
-          currentValue === LEGACY_GMAIL_IMPORT_QUERY_WITH_SUBJECT) {
+          currentValue === LEGACY_GMAIL_IMPORT_QUERY_WITH_SUBJECT ||
+          currentValue === LEGACY_GMAIL_IMPORT_QUERY_BARE_SUBJECT) {
         sheet.getRange(settingRow, 2, 1, 2).setValues([[DEFAULT_GMAIL_IMPORT_QUERY, row[2]]]);
       }
     }
   });
+
+  removeSettingRowsByKeys_(sheet, LEGACY_GMAIL_AUTO_IMPORT_SETTING_KEYS);
+}
+
+function removeSettingRowsByKeys_(sheet, keysToRemove) {
+  const removeSet = {};
+  keysToRemove.forEach(key => removeSet[key] = true);
+  const values = sheet.getDataRange().getValues();
+  for (let r = values.length - 1; r >= 1; r--) {
+    const key = String(values[r][0] || '').trim();
+    if (removeSet[key]) {
+      sheet.deleteRow(r + 1);
+    }
+  }
 }
 
 /**
