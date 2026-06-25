@@ -524,6 +524,7 @@ function ensureDefaultSettings_() {
     ['集計シート更新', true, 'TRUEならCSV取込・再集計時に集計_* シートへ書き出します。HTMLダッシュボードだけで運用する場合はFALSEで高速化できます。'],
     ['シート版ダッシュボード更新', false, 'TRUEならダッシュボード_* シートへも書き出します。通常はHTMLダッシュボードを使うためFALSE推奨です。'],
     ['閲覧用URLトークン', '', 'Webアプリの閲覧用URLを制限する任意トークン。空欄ならデプロイ設定の権限のみで制御します。'],
+    ['閲覧用URL（手動設定）', 'https://script.google.com/macros/s/AKfycbxKbCBRDF-FdgbVQztHXRJNp1gMjJW7W65LSVG3khah6-hwhcp5WihfTktFOQCOQA3FUw/exec?mode=viewer', '閲覧できることを確認済みのWebアプリURL。空欄ならApps ScriptのデプロイURLから自動取得します。'],
     ['Gmail取込検索条件', 'filename:csv newer_than:7d', 'Gmail添付CSV自動取込で使用する検索条件。送信元や件名を追加して絞り込んでください。'],
     ['Gmail取込文字コード', 'UTF-8', 'Gmail添付CSVの文字コード。UTF-8またはShift_JIS / CP932を指定します。'],
     ['最終取込日時', '', '取込完了時刻'],
@@ -2240,6 +2241,7 @@ function getSettings_() {
     updateSummarySheets: true,
     updateSheetDashboards: false,
     viewerUrlToken: '',
+    viewerDashboardUrlOverride: 'https://script.google.com/macros/s/AKfycbxKbCBRDF-FdgbVQztHXRJNp1gMjJW7W65LSVG3khah6-hwhcp5WihfTktFOQCOQA3FUw/exec?mode=viewer',
     gmailImportQuery: 'filename:csv newer_than:7d',
     gmailImportEncoding: 'UTF-8',
     lastImportTime: '',
@@ -2266,6 +2268,7 @@ function getSettings_() {
     if (key === '集計シート更新') settings.updateSummarySheets = parseBooleanSetting_(val, true);
     if (key === 'シート版ダッシュボード更新') settings.updateSheetDashboards = parseBooleanSetting_(val, false);
     if (key === '閲覧用URLトークン') settings.viewerUrlToken = String(val || '').trim();
+    if (key === '閲覧用URL（手動設定）') settings.viewerDashboardUrlOverride = String(val || '').trim();
     if (key === 'Gmail取込検索条件') settings.gmailImportQuery = String(val || '').trim();
     if (key === 'Gmail取込文字コード') settings.gmailImportEncoding = String(val || '').trim();
     if (key === '最終取込日時') settings.lastImportTime = val;
@@ -2703,14 +2706,67 @@ function showViewerDashboardUrl() {
     ui.alert('閲覧用URLを取得できません。Apps ScriptをWebアプリとしてデプロイしてから再度実行してください。');
     return;
   }
-  ui.alert('閲覧用ダッシュボードURL', url, ui.ButtonSet.OK);
+  ui.alert(
+    '閲覧用ダッシュボードURL',
+    url + '\n\n' +
+      '※ コピーしたURLに「script.google.com/a/...」形式のドメイン付きURLが含まれる場合、Googleドライブの「ファイルを開けません」画面に遷移することがあります。' +
+      '\n上記の「script.google.com/macros/s/」形式のURLを使用してください。',
+    ui.ButtonSet.OK
+  );
 }
 
 function getViewerDashboardUrl_() {
-  const baseUrl = ScriptApp.getService().getUrl();
+  const settings = getSettings_();
+  const token = settings.viewerUrlToken;
+  const manualUrl = normalizeAppsScriptWebAppUrl_(settings.viewerDashboardUrlOverride);
+  if (manualUrl) return buildViewerDashboardUrl_(manualUrl, token);
+
+  const baseUrl = normalizeAppsScriptWebAppUrl_(ScriptApp.getService().getUrl());
   if (!baseUrl) return '';
-  const token = getSettings_().viewerUrlToken;
-  return token ? `${baseUrl}?mode=viewer&token=${encodeURIComponent(token)}` : `${baseUrl}?mode=viewer`;
+  return buildViewerDashboardUrl_(baseUrl, token);
+}
+
+function buildViewerDashboardUrl_(url, token) {
+  const value = String(url || '').trim();
+  if (!value) return '';
+
+  const hashIndex = value.indexOf('#');
+  const withoutHash = hashIndex >= 0 ? value.slice(0, hashIndex) : value;
+  const hash = hashIndex >= 0 ? value.slice(hashIndex) : '';
+  const queryIndex = withoutHash.indexOf('?');
+  const path = queryIndex >= 0 ? withoutHash.slice(0, queryIndex) : withoutHash;
+  const query = queryIndex >= 0 ? withoutHash.slice(queryIndex + 1) : '';
+  const params = query
+    ? query.split('&').filter(param => {
+        const key = param.split('=')[0];
+        return key !== 'mode' && key !== 'token';
+      })
+    : [];
+
+  params.push('mode=viewer');
+  if (token) params.push(`token=${encodeURIComponent(token)}`);
+
+  return `${path}?${params.join('&')}${hash}`;
+}
+
+/**
+Apps Scriptがドメイン付きURL（/a/example.com/macros/s/... または
+/a/macros/example.com/s/...）を返す環境では、そのURLをコピーして開くと
+Googleドライブの「ファイルを開けません」画面へ遷移する場合がある。
+Webアプリとして安定して開ける標準URLへ正規化する。
+*/
+function normalizeAppsScriptWebAppUrl_(url) {
+  const value = String(url || '').trim();
+  if (!value) return '';
+  return value
+    .replace(
+      /^https:\/\/script\.google\.com\/a\/[^/]+\/macros\/s\//,
+      'https://script.google.com/macros/s/'
+    )
+    .replace(
+      /^https:\/\/script\.google\.com\/a\/macros\/[^/]+\/s\//,
+      'https://script.google.com/macros/s/'
+    );
 }
 
 
