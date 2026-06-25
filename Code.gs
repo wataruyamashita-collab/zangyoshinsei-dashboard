@@ -585,6 +585,20 @@ function ensureDefaultSettings_() {
       }
     }
   });
+
+  removeSettingRowsByKeys_(sheet, LEGACY_GMAIL_AUTO_IMPORT_SETTING_KEYS);
+}
+
+function removeSettingRowsByKeys_(sheet, keysToRemove) {
+  const removeSet = {};
+  keysToRemove.forEach(key => removeSet[key] = true);
+  const values = sheet.getDataRange().getValues();
+  for (let r = values.length - 1; r >= 1; r--) {
+    const key = String(values[r][0] || '').trim();
+    if (removeSet[key]) {
+      sheet.deleteRow(r + 1);
+    }
+  }
 }
 
 /**
