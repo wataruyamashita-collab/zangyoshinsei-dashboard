@@ -78,8 +78,9 @@ const DANGEROUS_SHEET_TEXT_PREFIX = /^[=+\-@\t\r]/;
 const LEGACY_GMAIL_IMPORT_QUERY = 'filename:csv newer_than:7d';
 const LEGACY_GMAIL_IMPORT_QUERY_WITH_KEYWORD = 'filename:csv newer_than:7d TeamSpirit';
 const LEGACY_GMAIL_IMPORT_QUERY_WITH_SUBJECT = 'filename:csv newer_than:7d subject:"申請確認日次勤怠データ"';
+const LEGACY_GMAIL_IMPORT_QUERY_WITH_REPORT_SUBJECT = 'filename:csv newer_than:7d subject:"レポート結果"';
 const LEGACY_GMAIL_IMPORT_QUERY_BARE_SUBJECT = '申請確認日次勤怠データ';
-const DEFAULT_GMAIL_IMPORT_QUERY = 'filename:csv newer_than:7d subject:"レポート結果"';
+const DEFAULT_GMAIL_IMPORT_QUERY = 'filename:csv newer_than:30d';
 const GMAIL_REPORT_SUBJECT_KEYWORDS = ['レポート結果', '申請確認日次勤怠データ', 'タジマ'];
 const LEGACY_GMAIL_AUTO_IMPORT_SETTING_KEYS = ['Gmail自動取込結果', 'Gmail自動取込メッセージ', 'Gmail自動取込日時'];
 
@@ -534,7 +535,7 @@ function ensureDefaultSettings_() {
     ['シート版ダッシュボード更新', false, 'TRUEならダッシュボード_* シートへも書き出します。通常はHTMLダッシュボードを使うためFALSE推奨です。'],
     ['閲覧用URLトークン', '', 'Webアプリの閲覧用URLを制限する任意トークン。空欄ならデプロイ設定の権限のみで制御します。'],
     ['閲覧用URL（手動設定）', 'https://script.google.com/macros/s/AKfycbxKbCBRDF-FdgbVQztHXRJNp1gMjJW7W65LSVG3khah6-hwhcp5WihfTktFOQCOQA3FUw/exec?mode=viewer', '閲覧できることを確認済みのWebアプリURL。空欄ならApps ScriptのデプロイURLから自動取得します。'],
-    ['Gmail取込検索条件', DEFAULT_GMAIL_IMPORT_QUERY, 'TeamSpiritから配信されるGmail添付CSV自動取込で使用する検索条件。誤検知防止のためGmail検索で件名「レポート結果」を拾い、コード側で「申請確認日次勤怠データ」「タジマ」も確認します。'],
+    ['Gmail取込検索条件', DEFAULT_GMAIL_IMPORT_QUERY, 'TeamSpiritから配信されるGmail添付CSV自動取込で使用する検索条件。Gmail検索はCSV添付に広げ、コード側で件名「レポート結果」「申請確認日次勤怠データ」「タジマ」を確認します。'],
     ['Gmail取込文字コード', 'UTF-8', 'Gmail添付CSVの文字コード。UTF-8またはShift_JIS / CP932を指定します。'],
     ['Gmailメール取込結果', '', 'Gmailメール取込の直近判定。手動取込成功／自動取込成功／取込対象なし／取込失敗'],
     ['Gmailメール取込メッセージ', '', 'Gmailメール取込の直近メッセージ'],
@@ -576,6 +577,7 @@ function ensureDefaultSettings_() {
       if (currentValue === LEGACY_GMAIL_IMPORT_QUERY ||
           currentValue === LEGACY_GMAIL_IMPORT_QUERY_WITH_KEYWORD ||
           currentValue === LEGACY_GMAIL_IMPORT_QUERY_WITH_SUBJECT ||
+          currentValue === LEGACY_GMAIL_IMPORT_QUERY_WITH_REPORT_SUBJECT ||
           currentValue === LEGACY_GMAIL_IMPORT_QUERY_BARE_SUBJECT) {
         sheet.getRange(settingRow, 2, 1, 2).setValues([[DEFAULT_GMAIL_IMPORT_QUERY, row[2]]]);
       }
@@ -2925,7 +2927,11 @@ function importLatestTeamSpiritCsvFromGmail(options) {
     memo: `検索条件：${query}`
   });
 
-  const skippedResult = { ok: true, skipped: true, message: `未取込のCSV添付メールはありません。検索条件：${query}` };
+  const skippedResult = {
+    ok: true,
+    skipped: true,
+    message: `未取込のCSV添付メールはありません。検索条件：${query}／件名条件：${GMAIL_REPORT_SUBJECT_KEYWORDS.join('、')}`
+  };
   if (shouldRecordGmailStatus) {
     recordGmailMailImportStatus_('取込対象なし', `${executionType}／${skippedResult.message}`);
   }
