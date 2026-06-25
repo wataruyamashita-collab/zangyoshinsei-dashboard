@@ -75,6 +75,8 @@ const TS_CONFIG = {
 const REGEX_SALES_DEPT = /営業所|出張所|エリア/;
 const RAW_TEXT_COLUMN_COUNT = TS_CONFIG.REQUIRED_HEADERS.length;
 const DANGEROUS_SHEET_TEXT_PREFIX = /^[=+\-@\t\r]/;
+const LEGACY_GMAIL_IMPORT_QUERY = 'filename:csv newer_than:7d';
+const DEFAULT_GMAIL_IMPORT_QUERY = 'filename:csv newer_than:7d TeamSpirit';
 
 /**
 スプレッドシートを開いたときにメニューを追加
@@ -525,7 +527,7 @@ function ensureDefaultSettings_() {
     ['シート版ダッシュボード更新', false, 'TRUEならダッシュボード_* シートへも書き出します。通常はHTMLダッシュボードを使うためFALSE推奨です。'],
     ['閲覧用URLトークン', '', 'Webアプリの閲覧用URLを制限する任意トークン。空欄ならデプロイ設定の権限のみで制御します。'],
     ['閲覧用URL（手動設定）', 'https://script.google.com/macros/s/AKfycbxKbCBRDF-FdgbVQztHXRJNp1gMjJW7W65LSVG3khah6-hwhcp5WihfTktFOQCOQA3FUw/exec?mode=viewer', '閲覧できることを確認済みのWebアプリURL。空欄ならApps ScriptのデプロイURLから自動取得します。'],
-    ['Gmail取込検索条件', 'filename:csv newer_than:7d', 'Gmail添付CSV自動取込で使用する検索条件。送信元や件名を追加して絞り込んでください。'],
+    ['Gmail取込検索条件', DEFAULT_GMAIL_IMPORT_QUERY, 'TeamSpiritから配信されるGmail添付CSV自動取込で使用する検索条件。必要に応じて from: や subject: で絞り込んでください。'],
     ['Gmail取込文字コード', 'UTF-8', 'Gmail添付CSVの文字コード。UTF-8またはShift_JIS / CP932を指定します。'],
     ['最終取込日時', '', '取込完了時刻'],
     ['ダッシュボード注記', '本資料は、TeamSpiritに登録された残業申請・承認データに基づき、事前申請および事前承認の状況を集計したものです。\n勤怠締め前の数値は速報値であり、申請・承認状況の更新により変更となる場合があります。', '表示用注記']
@@ -554,6 +556,15 @@ function ensureDefaultSettings_() {
 
     if (!keys.includes(row[0])) {
       sheet.appendRow(row);
+      return;
+    }
+
+    if (row[0] === 'Gmail取込検索条件') {
+      const settingRow = keys.indexOf(row[0]) + 1;
+      const currentValue = String(sheet.getRange(settingRow, 2).getValue() || '').trim();
+      if (currentValue === LEGACY_GMAIL_IMPORT_QUERY) {
+        sheet.getRange(settingRow, 2, 1, 2).setValues([[DEFAULT_GMAIL_IMPORT_QUERY, row[2]]]);
+      }
     }
   });
 }
@@ -2242,7 +2253,7 @@ function getSettings_() {
     updateSheetDashboards: false,
     viewerUrlToken: '',
     viewerDashboardUrlOverride: 'https://script.google.com/macros/s/AKfycbxKbCBRDF-FdgbVQztHXRJNp1gMjJW7W65LSVG3khah6-hwhcp5WihfTktFOQCOQA3FUw/exec?mode=viewer',
-    gmailImportQuery: 'filename:csv newer_than:7d',
+    gmailImportQuery: DEFAULT_GMAIL_IMPORT_QUERY,
     gmailImportEncoding: 'UTF-8',
     lastImportTime: '',
     dashboardNote: ''
@@ -2811,7 +2822,7 @@ Gmail添付CSVを1件取り込む。
 */
 function importLatestTeamSpiritCsvFromGmail() {
   const settings = getSettings_();
-  const query = settings.gmailImportQuery || 'filename:csv newer_than:7d';
+  const query = settings.gmailImportQuery || DEFAULT_GMAIL_IMPORT_QUERY;
   const threads = GmailApp.search(query, 0, 10);
   const processed = getProcessedGmailAttachmentIds_();
 
