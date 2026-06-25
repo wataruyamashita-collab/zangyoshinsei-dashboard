@@ -82,6 +82,7 @@ const LEGACY_GMAIL_IMPORT_QUERY_WITH_REPORT_SUBJECT = 'filename:csv newer_than:7
 const LEGACY_GMAIL_IMPORT_QUERY_BARE_SUBJECT = '申請確認日次勤怠データ';
 const DEFAULT_GMAIL_IMPORT_QUERY = 'filename:csv newer_than:30d';
 const GMAIL_REPORT_SUBJECT_KEYWORDS = ['レポート結果', '申請確認日次勤怠データ', 'タジマ'];
+const LEGACY_GMAIL_AUTO_IMPORT_SETTING_KEYS = [];
 
 /**
 スプレッドシートを開いたときにメニューを追加
