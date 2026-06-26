@@ -652,7 +652,16 @@ CSVテキストを区切り文字を判定して配列化
 */
 function parseCsvTextWithDetectedDelimiter_(csvText) {
   const candidates = [',', '\t'].map(delimiter => {
-    const values = Utilities.parseCsv(csvText, delimiter);
+    let values;
+    let parseError = null;
+
+    try {
+      values = Utilities.parseCsv(csvText, delimiter);
+    } catch (error) {
+      parseError = error;
+      values = parseDelimitedTextLenient_(csvText, delimiter);
+    }
+
     const headers = values && values.length > 0
       ? values[0].slice(0, TS_CONFIG.REQUIRED_HEADERS.length).map(v => String(v).trim())
       : [];
@@ -660,12 +669,80 @@ function parseCsvTextWithDetectedDelimiter_(csvText) {
     return {
       delimiter,
       values,
+      parseError,
       requiredHeaderMatches: countRequiredHeaderMatches_(headers)
     };
   });
 
-  candidates.sort((a, b) => b.requiredHeaderMatches - a.requiredHeaderMatches);
+  candidates.sort((a, b) => {
+    if (a.requiredHeaderMatches !== b.requiredHeaderMatches) {
+      return b.requiredHeaderMatches - a.requiredHeaderMatches;
+    }
+    if (!!a.parseError !== !!b.parseError) {
+      return a.parseError ? 1 : -1;
+    }
+    return 0;
+  });
+
+  if (!candidates[0].values || candidates[0].values.length === 0) {
+    throw new Error('CSVテキストを解析できませんでした。CSVファイルの内容を確認してください。');
+  }
+
   return candidates[0].values;
+}
+
+/**
+Utilities.parseCsvが、TeamSpiritの備考欄などに含まれる不正な引用符で失敗する場合のフォールバック。
+RFC 4180形式の引用符は解釈しつつ、フィールド途中の単独引用符は通常文字として扱う。
+*/
+function parseDelimitedTextLenient_(text, delimiter) {
+  const rows = [];
+  let row = [];
+  let field = '';
+  let inQuotes = false;
+  let atFieldStart = true;
+  const source = String(text || '');
+
+  for (let i = 0; i < source.length; i++) {
+    const ch = source.charAt(i);
+    const next = source.charAt(i + 1);
+
+    if (ch === '"') {
+      if (inQuotes && next === '"') {
+        field += '"';
+        i++;
+      } else if (atFieldStart) {
+        inQuotes = !inQuotes;
+        atFieldStart = false;
+      } else if (inQuotes && (next === delimiter || next === '\n' || next === '\r' || next === '')) {
+        inQuotes = false;
+      } else {
+        field += ch;
+        atFieldStart = false;
+      }
+    } else if (ch === delimiter && !inQuotes) {
+      row.push(field);
+      field = '';
+      atFieldStart = true;
+    } else if ((ch === '\n' || ch === '\r') && !inQuotes) {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = '';
+      atFieldStart = true;
+      if (ch === '\r' && next === '\n') i++;
+    } else {
+      field += ch;
+      atFieldStart = false;
+    }
+  }
+
+  if (field !== '' || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+
+  return rows;
 }
 
 function countRequiredHeaderMatches_(headers) {
