@@ -3308,10 +3308,6 @@ function buildDeptWeeklyAnalysisText_(summaryRow, periodLabel) {
   const notApprovedText = notApprovedCount > 0
     ? `未承認が${notApprovedCount}件あります。承認漏れ・処理遅れの確認が必要です。`
     : '未承認はありません。';
-  const volumeText = count < 20
-    ? `なお、申請件数が${count}件と少ないため、1件の差で約${formatPercentText_(count ? 1 / count : 0).replace('%', '')}ポイント変動します。週次評価では、率だけでなく件数も併記して判断するのが妥当です。`
-    : `申請件数は${count}件あり、週次の傾向として一定程度参考にできます。`;
-
   return [
     `【${deptName}・${periodLabel || '対象週'}の分析】`,
     '',
@@ -3322,9 +3318,7 @@ function buildDeptWeeklyAnalysisText_(summaryRow, periodLabel) {
     '',
     approvalText,
     '',
-    notApprovedText,
-    '',
-    volumeText
+    notApprovedText
   ].join('\n');
 }
 
