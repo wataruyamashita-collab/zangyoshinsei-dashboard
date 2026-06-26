@@ -228,7 +228,7 @@ function importCsvTextPayload_(payload, options) {
     const encoding = payload.encoding || 'auto';
     const csvText = normalizeCsvText_(payload.csvText);
 
-    const csvValues = Utilities.parseCsv(csvText);
+    const csvValues = parseCsvTextWithDetectedDelimiter_(csvText);
     const csvInfo = getCsvDataInfoFromValues_(csvValues);
     validateCsvHeaders_(csvInfo.headers);
 
@@ -645,6 +645,35 @@ function normalizeCsvText_(text) {
     .replace(/^\uFEFF/, '')
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n');
+}
+
+/**
+CSVテキストを区切り文字を判定して配列化
+*/
+function parseCsvTextWithDetectedDelimiter_(csvText) {
+  const candidates = [',', '\t'].map(delimiter => {
+    const values = Utilities.parseCsv(csvText, delimiter);
+    const headers = values && values.length > 0
+      ? values[0].slice(0, TS_CONFIG.REQUIRED_HEADERS.length).map(v => String(v).trim())
+      : [];
+
+    return {
+      delimiter,
+      values,
+      requiredHeaderMatches: countRequiredHeaderMatches_(headers)
+    };
+  });
+
+  candidates.sort((a, b) => b.requiredHeaderMatches - a.requiredHeaderMatches);
+  return candidates[0].values;
+}
+
+function countRequiredHeaderMatches_(headers) {
+  const normalizedActual = headers.map(normalizeHeader_);
+  return TS_CONFIG.REQUIRED_HEADERS
+    .map(normalizeHeader_)
+    .filter(required => normalizedActual.includes(required))
+    .length;
 }
 
 /**
@@ -3308,10 +3337,6 @@ function buildDeptWeeklyAnalysisText_(summaryRow, periodLabel) {
   const notApprovedText = notApprovedCount > 0
     ? `未承認が${notApprovedCount}件あります。承認漏れ・処理遅れの確認が必要です。`
     : '未承認はありません。';
-  const volumeText = count < 20
-    ? `なお、申請件数が${count}件と少ないため、1件の差で約${formatPercentText_(count ? 1 / count : 0).replace('%', '')}ポイント変動します。週次評価では、率だけでなく件数も併記して判断するのが妥当です。`
-    : `申請件数は${count}件あり、週次の傾向として一定程度参考にできます。`;
-
   return [
     `【${deptName}・${periodLabel || '対象週'}の分析】`,
     '',
@@ -3322,9 +3347,7 @@ function buildDeptWeeklyAnalysisText_(summaryRow, periodLabel) {
     '',
     approvalText,
     '',
-    notApprovedText,
-    '',
-    volumeText
+    notApprovedText
   ].join('\n');
 }
 

@@ -253,7 +253,7 @@
     }
 
     function inspectCsvDecodeQuality(text) {
-      const headers = parseCsvHeaderLine(text).map(normalizeHeader);
+      const headers = parseDelimitedHeaderLine(text).map(normalizeHeader);
       return {
         requiredHeaderMatches: REQUIRED_HEADERS
           .map(normalizeHeader)
@@ -274,8 +274,14 @@
       return a.quality.replacementChars - b.quality.replacementChars;
     }
 
-    function parseCsvHeaderLine(text) {
+    function parseDelimitedHeaderLine(text) {
       const firstLine = String(text || '').replace(/^\uFEFF/, '').split(/\r\n|\n|\r/)[0] || '';
+      const commaCells = parseHeaderLineWithDelimiter(firstLine, ',');
+      const tabCells = parseHeaderLineWithDelimiter(firstLine, '\t');
+      return countRequiredHeaderMatches(tabCells) > countRequiredHeaderMatches(commaCells) ? tabCells : commaCells;
+    }
+
+    function parseHeaderLineWithDelimiter(firstLine, delimiter) {
       const cells = [];
       let current = '';
       let inQuotes = false;
@@ -289,7 +295,7 @@
           i++;
         } else if (ch === '"') {
           inQuotes = !inQuotes;
-        } else if (ch === ',' && !inQuotes) {
+        } else if (ch === delimiter && !inQuotes) {
           cells.push(current);
           current = '';
         } else {
@@ -299,6 +305,14 @@
 
       cells.push(current);
       return cells;
+    }
+
+    function countRequiredHeaderMatches(headers) {
+      const normalizedActual = headers.map(normalizeHeader);
+      return REQUIRED_HEADERS
+        .map(normalizeHeader)
+        .filter(function(required) { return normalizedActual.indexOf(required) !== -1; })
+        .length;
     }
 
     function normalizeHeader(header) {
