@@ -869,7 +869,10 @@ function buildProcessedRows_(rows, headerMap, deptMaster, targetMonth, settings)
   const idx = name => headerMap[normalizeHeader_(name)];
 
   rows.forEach(row => {
-    const base = TS_CONFIG.REQUIRED_HEADERS.map(header => row[idx(header)]);
+    const base = TS_CONFIG.REQUIRED_HEADERS.map(header => {
+      const value = row[idx(header)];
+      return value === undefined ? '' : value;
+    });
     const deptName = row[idx('部署名')];
     const targetCode = row[idx('残業申請:申請対象社員コード')];
     const applyType = row[idx('残業申請:申請種類')];
