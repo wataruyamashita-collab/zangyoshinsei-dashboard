@@ -3578,6 +3578,7 @@ HTMLダッシュボードカテゴリ別ペイロード
 function buildDashboardCategoryPayload_(currentDeptRows, previousDeptRows, category) {
   const currentRows = currentDeptRows.filter(row => row[1] === category);
   const previousRows = previousDeptRows.filter(row => row[1] === category);
+  const currentMap = buildDeptRowMap_(currentRows);
   const previousMap = buildDeptRowMap_(previousRows);
 
   const currentTotals = calcTotals_(currentRows);
@@ -3586,34 +3587,8 @@ function buildDashboardCategoryPayload_(currentDeptRows, previousDeptRows, categ
   const currentSummary = buildDashboardTotalPayload_(currentTotals);
   const previousSummary = buildDashboardTotalPayload_(previousTotals);
 
-  const details = currentRows
-    .slice()
-    .sort((a, b) => a[8] - b[8])
-    .map(row => {
-      const prev = previousMap[row[0]] || emptyDeptSummaryRow_(row[0], category);
-
-      return {
-        deptName: row[0],
-        category: row[1],
-        count: Number(row[2] || 0),
-        previousCount: Number(prev[2] || 0),
-        countDiff: Number(row[2] || 0) - Number(prev[2] || 0),
-        countGrowth: safeGrowthRate_(row[2], prev[2]),
-        beforeApplyRate: Number(row[7] || 0),
-        beforeApplyRatePrev: Number(prev[7] || 0),
-        beforeApplyRateDiff: Number(row[7] || 0) - Number(prev[7] || 0),
-        beforeApproveRate: Number(row[8] || 0),
-        beforeApproveRatePrev: Number(prev[8] || 0),
-        beforeApproveRateDiff: Number(row[8] || 0) - Number(prev[8] || 0),
-        nextDayApproveRate: Number(row[9] || 0),
-        nextDayApproveRatePrev: Number(prev[9] || 0),
-        nextDayApproveRateDiff: Number(row[9] || 0) - Number(prev[9] || 0),
-        notApprovedCount: Number(row[10] || 0),
-        notApprovedCountPrev: Number(prev[10] || 0),
-        notApprovedCountDiff: Number(row[10] || 0) - Number(prev[10] || 0),
-        alert: row[11] || ''
-      };
-    });
+  const details = buildDashboardDetailPayload_(currentRows, previousMap, category);
+  const previousDetails = buildDashboardDetailPayload_(previousRows, currentMap, category);
 
   return {
     category: category,
@@ -3627,8 +3602,40 @@ function buildDashboardCategoryPayload_(currentDeptRows, previousDeptRows, categ
       nextDayApproveRate: currentSummary.nextDayApproveRate - previousSummary.nextDayApproveRate,
       notApprovedCount: currentSummary.notApprovedCount - previousSummary.notApprovedCount
     },
-    details: details
+    details: details,
+    previousDetails: previousDetails
   };
+}
+
+function buildDashboardDetailPayload_(rows, compareMap, category) {
+  return rows
+    .slice()
+    .sort((a, b) => a[8] - b[8])
+    .map(row => {
+      const compare = compareMap[row[0]] || emptyDeptSummaryRow_(row[0], category);
+
+      return {
+        deptName: row[0],
+        category: row[1],
+        count: Number(row[2] || 0),
+        previousCount: Number(compare[2] || 0),
+        countDiff: Number(row[2] || 0) - Number(compare[2] || 0),
+        countGrowth: safeGrowthRate_(row[2], compare[2]),
+        beforeApplyRate: Number(row[7] || 0),
+        beforeApplyRatePrev: Number(compare[7] || 0),
+        beforeApplyRateDiff: Number(row[7] || 0) - Number(compare[7] || 0),
+        beforeApproveRate: Number(row[8] || 0),
+        beforeApproveRatePrev: Number(compare[8] || 0),
+        beforeApproveRateDiff: Number(row[8] || 0) - Number(compare[8] || 0),
+        nextDayApproveRate: Number(row[9] || 0),
+        nextDayApproveRatePrev: Number(compare[9] || 0),
+        nextDayApproveRateDiff: Number(row[9] || 0) - Number(compare[9] || 0),
+        notApprovedCount: Number(row[10] || 0),
+        notApprovedCountPrev: Number(compare[10] || 0),
+        notApprovedCountDiff: Number(row[10] || 0) - Number(compare[10] || 0),
+        alert: row[11] || ''
+      };
+    });
 }
 
 /**
