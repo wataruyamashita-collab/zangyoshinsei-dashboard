@@ -82,6 +82,7 @@ const LEGACY_GMAIL_IMPORT_QUERY_WITH_REPORT_SUBJECT = 'filename:csv newer_than:7
 const LEGACY_GMAIL_IMPORT_QUERY_BARE_SUBJECT = '申請確認日次勤怠データ';
 const DEFAULT_GMAIL_IMPORT_QUERY = 'filename:csv newer_than:30d';
 const GMAIL_REPORT_SUBJECT_KEYWORDS = ['レポート結果', '申請確認日次勤怠データ', 'タジマ'];
+const GMAIL_EXCLUDED_SUBJECT_KEYWORDS = ['ｶｽﾀﾏｰｻｸｾｽ推進課（製）'];
 const LEGACY_GMAIL_AUTO_IMPORT_SETTING_KEYS = [];
 const EXCLUDED_COUNT_EMPLOYEE_CODES = ['205401', '205402', '207014', '207015'];
 const WEEKLY_EXECUTIVE_MAIL_TO = [
@@ -3214,6 +3215,14 @@ function runGmailAutoImportTrigger() {
 
 function isTargetTeamSpiritReportSubject_(subject) {
   const normalizedSubject = normalizeGmailSubject_(subject);
+  const isExcludedSubject = GMAIL_EXCLUDED_SUBJECT_KEYWORDS.some(keyword =>
+    normalizedSubject.includes(normalizeGmailSubject_(keyword))
+  );
+
+  if (isExcludedSubject) {
+    return false;
+  }
+
   return GMAIL_REPORT_SUBJECT_KEYWORDS.some(keyword => normalizedSubject.includes(normalizeGmailSubject_(keyword)));
 }
 
