@@ -84,6 +84,13 @@ const DEFAULT_GMAIL_IMPORT_QUERY = 'filename:csv newer_than:30d';
 const GMAIL_REPORT_SUBJECT_KEYWORDS = ['レポート結果', '申請確認日次勤怠データ', 'タジマ'];
 const LEGACY_GMAIL_AUTO_IMPORT_SETTING_KEYS = [];
 const EXCLUDED_COUNT_EMPLOYEE_CODES = ['205401', '205402', '207014', '207015'];
+const WEEKLY_EXECUTIVE_MAIL_TO = [
+  'shoji.osaki@bl.tjk.co.jp',
+  'naoya.seki@broadleaf.co.jp',
+  'hosei.taura@bl.tjk.co.jp',
+  'nobuharu.nashiki@bl.tjk.co.jp'
+];
+const WEEKLY_EXECUTIVE_MAIL_CC = ['yoshihito.uchida@bl.tjk.co.jp'];
 
 /**
 スプレッドシートを開いたときにメニューを追加
@@ -98,6 +105,8 @@ function onOpen() {
     .addItem('月次・週次を再集計', 'rebuildMonthlyAndWeeklyFromAccum')
     .addItem('Gmail添付CSVを取り込み', 'runGmailCsvImportFromMenu')
     .addItem('Gmail自動取込を毎時設定', 'installHourlyGmailAutoImportTrigger')
+    .addItem('役員向け週次メールを金曜13時に設定', 'installWeeklyExecutiveMailTrigger')
+    .addItem('役員向け週次メールを今すぐ送信', 'sendWeeklyExecutiveDashboardMailFromMenu')
     .addItem('エラー一覧を更新', 'refreshErrorListFromRaw')
     .addSeparator()
     .addItem('対象月を確定にする', 'markCurrentMonthAsFinal')
@@ -553,6 +562,12 @@ function ensureDefaultSettings_() {
     ['Gmail自動取込メッセージ', '', '自動取込の直近メッセージ'],
     ['Gmail自動取込日時', '', '自動取込を実行した日時。yyyy/MM/dd HH:mm:ss形式'],
     ['Gmail自動取込トリガー', '', '毎時自動取込トリガーの設定状態'],
+    ['役員向け週次メールTo', WEEKLY_EXECUTIVE_MAIL_TO.join(','), '毎週金曜13時に送信する役員向け週次メールのTo。カンマ区切りで複数指定できます。'],
+    ['役員向け週次メールCc', WEEKLY_EXECUTIVE_MAIL_CC.join(','), '毎週金曜13時に送信する役員向け週次メールのCc。カンマ区切りで複数指定できます。'],
+    ['役員向け週次メールトリガー', '', '役員向け週次メール送信トリガーの設定状態'],
+    ['役員向け週次メール送信結果', '', '役員向け週次メールの直近送信結果'],
+    ['役員向け週次メール送信メッセージ', '', '役員向け週次メールの直近送信メッセージ'],
+    ['役員向け週次メール送信日時', '', '役員向け週次メールを送信した日時。yyyy/MM/dd HH:mm:ss形式'],
     ['最終取込日時', '', '取込完了時刻'],
     ['ダッシュボード注記', '本資料は、TeamSpiritに登録された残業申請・承認データに基づき、事前申請および事前承認の状況を集計したものです。\n勤怠締め前の数値は速報値であり、申請・承認状況の更新により変更となる場合があります。', '表示用注記']
   ];
@@ -2428,6 +2443,12 @@ function getSettings_() {
     gmailAutoImportMessage: '',
     gmailAutoImportTime: '',
     gmailAutoImportTrigger: '',
+    weeklyExecutiveMailTo: WEEKLY_EXECUTIVE_MAIL_TO.join(','),
+    weeklyExecutiveMailCc: WEEKLY_EXECUTIVE_MAIL_CC.join(','),
+    weeklyExecutiveMailTrigger: '',
+    weeklyExecutiveMailResult: '',
+    weeklyExecutiveMailMessage: '',
+    weeklyExecutiveMailTime: '',
     lastImportTime: '',
     dashboardNote: ''
   };
@@ -2462,6 +2483,12 @@ function getSettings_() {
     if (key === 'Gmail自動取込メッセージ') settings.gmailAutoImportMessage = String(val || '').trim();
     if (key === 'Gmail自動取込日時') settings.gmailAutoImportTime = val;
     if (key === 'Gmail自動取込トリガー') settings.gmailAutoImportTrigger = String(val || '').trim();
+    if (key === '役員向け週次メールTo') settings.weeklyExecutiveMailTo = String(val || '').trim();
+    if (key === '役員向け週次メールCc') settings.weeklyExecutiveMailCc = String(val || '').trim();
+    if (key === '役員向け週次メールトリガー') settings.weeklyExecutiveMailTrigger = String(val || '').trim();
+    if (key === '役員向け週次メール送信結果') settings.weeklyExecutiveMailResult = String(val || '').trim();
+    if (key === '役員向け週次メール送信メッセージ') settings.weeklyExecutiveMailMessage = String(val || '').trim();
+    if (key === '役員向け週次メール送信日時') settings.weeklyExecutiveMailTime = val;
     if (key === '最終取込日時') settings.lastImportTime = val;
     if (key === 'ダッシュボード注記') settings.dashboardNote = val;
   }
@@ -3229,6 +3256,203 @@ function recordGmailMailImportStatus_(result, message, executionType) {
   }
 
   setSettingValuesBulk_(updates);
+}
+
+/**
+役員向け週次メールを手動送信する。
+*/
+function sendWeeklyExecutiveDashboardMailFromMenu() {
+  const ui = SpreadsheetApp.getUi();
+  try {
+    const result = sendWeeklyExecutiveDashboardMail();
+    ui.alert('役員向け週次メールを送信しました。\n\n' + result.message);
+  } catch (error) {
+    const message = error && error.message ? error.message : String(error);
+    ui.alert('役員向け週次メールの送信に失敗しました。\n\n' + message);
+    throw error;
+  }
+}
+
+/**
+毎週金曜日13時に役員向け週次メールを送信するトリガーを作成する。
+*/
+function installWeeklyExecutiveMailTrigger() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  ensureSpreadsheetTimeZone_(ss);
+  ensureBaseSheets_(ss);
+  ensureDefaultSettings_();
+  const result = ensureWeeklyExecutiveMailTrigger_();
+  SpreadsheetApp.getUi().alert(result.message);
+}
+
+function ensureWeeklyExecutiveMailTrigger_() {
+  deleteWeeklyExecutiveMailTriggers_();
+  ScriptApp.newTrigger('sendWeeklyExecutiveDashboardMail')
+    .timeBased()
+    .onWeekDay(ScriptApp.WeekDay.FRIDAY)
+    .atHour(13)
+    .inTimezone(TS_CONFIG.TIMEZONE)
+    .create();
+  const message = '毎週金曜日13時（Asia/Tokyo）送信トリガーを設定済み';
+  setSettingValuesBulk_({
+    '役員向け週次メールトリガー': message
+  });
+  return { ok: true, message: message };
+}
+
+function deleteWeeklyExecutiveMailTriggers_() {
+  ScriptApp.getProjectTriggers().forEach(trigger => {
+    if (trigger.getHandlerFunction() === 'sendWeeklyExecutiveDashboardMail') {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
+}
+
+/**
+時間主導トリガー用の役員向け週次メール送信エントリーポイント。
+*/
+function sendWeeklyExecutiveDashboardMail() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    ensureSpreadsheetTimeZone_(ss);
+    ensureBaseSheets_(ss);
+    ensureDefaultSettings_();
+
+    const settings = getSettings_();
+    const to = normalizeMailAddressList_(settings.weeklyExecutiveMailTo || WEEKLY_EXECUTIVE_MAIL_TO.join(','));
+    const cc = normalizeMailAddressList_(settings.weeklyExecutiveMailCc || WEEKLY_EXECUTIVE_MAIL_CC.join(','));
+    if (!to) {
+      throw new Error('役員向け週次メールToが設定されていません。');
+    }
+
+    const dashboardData = getHtmlDashboardDataCore_();
+    const subject = buildWeeklyExecutiveMailSubject_(dashboardData);
+    const body = buildWeeklyExecutiveMailBody_(dashboardData);
+    const htmlBody = buildWeeklyExecutiveMailHtmlBody_(body);
+
+    MailApp.sendEmail({
+      to: to,
+      cc: cc,
+      subject: subject,
+      body: body,
+      htmlBody: htmlBody
+    });
+
+    const message = `To：${to}／Cc：${cc || 'なし'}／件名：${subject}`;
+    recordWeeklyExecutiveMailStatus_('送信成功', message);
+    return { ok: true, message: message };
+  } catch (error) {
+    const message = error && error.message ? error.message : String(error);
+    recordWeeklyExecutiveMailStatus_('送信失敗', message);
+    throw error;
+  }
+}
+
+function buildWeeklyExecutiveMailSubject_(dashboardData) {
+  const weekLabel = dashboardData && dashboardData.weekly ? dashboardData.weekly.label : '';
+  return `【週次報告】残業申請・承認状況 ${weekLabel || ''}`.trim();
+}
+
+function buildWeeklyExecutiveMailBody_(dashboardData) {
+  if (!dashboardData || !dashboardData.ok) {
+    const message = dashboardData && dashboardData.message ? dashboardData.message : 'ダッシュボードデータを取得できませんでした。';
+    return [
+      '役員各位',
+      '',
+      'お疲れさまでございます。',
+      '残業申請・承認状況の週次レポートにつきまして、データ取得時に確認事項が発生しております。',
+      '',
+      message,
+      '',
+      '恐れ入りますが、管理者にて取込状況をご確認くださいますようお願いいたします。',
+      '',
+      '以上、よろしくお願いいたします。'
+    ].join('\n');
+  }
+
+  const weekly = dashboardData.weekly || {};
+  const settings = dashboardData.settings || {};
+  const staffCurrent = (weekly.staff && weekly.staff.current) || {};
+  const salesCurrent = (weekly.sales && weekly.sales.current) || {};
+  const dashboardUrl = getViewerDashboardUrl_();
+  const generatedAt = dashboardData.generatedAt || formatDateTimeForKey_(new Date());
+  const weekLabel = weekly.label || settings.targetWeek || '';
+  const weekRange = settings.weekStart && settings.weekEnd ? `${settings.weekStart}〜${settings.weekEnd}` : '';
+  const comments = buildWeeklyExecutiveMailComments_(staffCurrent, salesCurrent, settings.alertThreshold);
+
+  return [
+    '役員各位',
+    '',
+    'お疲れさまでございます。',
+    '残業申請・承認状況の週次レポートをお送りいたします。',
+    '',
+    `対象週：${weekLabel}${weekRange ? '（' + weekRange + '）' : ''}`,
+    `作成日時：${generatedAt}`,
+    '',
+    '■ サマリー',
+    `・スタッフ部門：申請件数 ${formatNumberText_(staffCurrent.count)}件／定時前申請率 ${formatPercentText_(staffCurrent.beforeApplyRate)}／当日定時前承認率 ${formatPercentText_(staffCurrent.beforeApproveRate)}／未承認 ${formatNumberText_(staffCurrent.notApprovedCount)}件`,
+    `・営業部門参考：申請件数 ${formatNumberText_(salesCurrent.count)}件／定時前申請率 ${formatPercentText_(salesCurrent.beforeApplyRate)}／当日定時前承認率 ${formatPercentText_(salesCurrent.beforeApproveRate)}／未承認 ${formatNumberText_(salesCurrent.notApprovedCount)}件`,
+    '',
+    '■ 所感',
+    comments,
+    '',
+    '詳細は以下の閲覧用ダッシュボードをご確認ください。',
+    dashboardUrl || '閲覧用URLを取得できませんでした。管理者へご確認ください。',
+    '',
+    '以上、よろしくお願いいたします。'
+  ].join('\n');
+}
+
+function buildWeeklyExecutiveMailComments_(staffCurrent, salesCurrent, threshold) {
+  const alertThreshold = parseRate_(threshold, 0.8);
+  const staffApproveRate = Number(staffCurrent.beforeApproveRate || 0);
+  const salesApproveRate = Number(salesCurrent.beforeApproveRate || 0);
+  if (staffApproveRate >= alertThreshold && salesApproveRate >= alertThreshold) {
+    return '当日定時前承認率はいずれも基準値以上で推移しております。引き続き、事前申請・事前承認の徹底状況を継続確認してまいります。';
+  }
+  if (staffApproveRate < alertThreshold && salesApproveRate < alertThreshold) {
+    return 'スタッフ部門・営業部門参考ともに当日定時前承認率が基準値を下回っております。該当部門には、事前承認の運用徹底に向けた確認を進めてまいります。';
+  }
+  if (staffApproveRate < alertThreshold) {
+    return 'スタッフ部門の当日定時前承認率が基準値を下回っております。対象部署を確認のうえ、承認遅延の要因把握と改善を進めてまいります。';
+  }
+  return '営業部門参考の当日定時前承認率が基準値を下回っております。対象拠点を確認のうえ、承認遅延の要因把握と改善を進めてまいります。';
+}
+
+function buildWeeklyExecutiveMailHtmlBody_(body) {
+  return '<div style="font-family:Arial,\'Yu Gothic\',Meiryo,sans-serif;font-size:14px;line-height:1.8;color:#202124;">' +
+    escapeHtmlForMail_(body).replace(/\n/g, '<br>') +
+    '</div>';
+}
+
+function normalizeMailAddressList_(value) {
+  return String(value || '')
+    .split(/[,\n;]/)
+    .map(v => v.trim())
+    .filter(Boolean)
+    .join(',');
+}
+
+function recordWeeklyExecutiveMailStatus_(result, message) {
+  setSettingValuesBulk_({
+    '役員向け週次メール送信結果': result,
+    '役員向け週次メール送信メッセージ': message,
+    '役員向け週次メール送信日時': formatDateTimeForKey_(new Date())
+  });
+}
+
+function formatNumberText_(value) {
+  const n = Number(value || 0);
+  return String(isNaN(n) ? 0 : n);
+}
+
+function escapeHtmlForMail_(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function normalizeGmailImportCharset_(encoding) {
