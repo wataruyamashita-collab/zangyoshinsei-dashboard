@@ -107,6 +107,7 @@ function onOpen() {
     .addItem('Gmail自動取込を毎時設定', 'installHourlyGmailAutoImportTrigger')
     .addItem('役員向け週次メールを金曜13時に設定', 'installWeeklyExecutiveMailTrigger')
     .addItem('役員向け週次メール確認通知を金曜9時に設定', 'installWeeklyExecutiveDraftWebhookTrigger')
+    .addItem('役員向け週次メールWebhook通知内容を確認', 'showWeeklyExecutiveDraftWebhookPreview')
     .addItem('役員向け週次メールWebhookテスト通知を送信', 'sendWeeklyExecutiveDraftWebhookTestFromMenu')
     .addItem('役員向け週次メールの下書きを作成', 'sendWeeklyExecutiveDashboardMailFromMenu')
     .addItem('エラー一覧を更新', 'refreshErrorListFromRaw')
@@ -3406,6 +3407,24 @@ function sendWeeklyExecutiveDraftWebhookTest() {
   } catch (error) {
     const message = error && error.message ? error.message : String(error);
     recordWeeklyExecutiveDraftWebhookStatus_('テスト通知失敗', message);
+    throw error;
+  }
+}
+
+/**
+Webhookに送る確認依頼文を、送信せずに画面で確認する。
+*/
+function showWeeklyExecutiveDraftWebhookPreview() {
+  const ui = SpreadsheetApp.getUi();
+  try {
+    const mail = buildWeeklyExecutiveMail_();
+    const message = buildWeeklyExecutiveDraftWebhookMessage_({
+      message: `To：${mail.to}／Cc：${mail.cc || 'なし'}／件名：${mail.subject}`
+    });
+    ui.alert('Webhook通知内容プレビュー', message, ui.ButtonSet.OK);
+  } catch (error) {
+    const message = error && error.message ? error.message : String(error);
+    ui.alert('Webhook通知内容の作成に失敗しました。\n\n' + message);
     throw error;
   }
 }
