@@ -3651,7 +3651,7 @@ function formatPercentPointText_(rateDiff) {
 }
 
 function buildWeeklyExecutiveMailHtmlBody_(body) {
-  return '<div style="font-family:Arial,\'Yu Gothic\',Meiryo,sans-serif;font-size:14px;line-height:1.8;color:#202124;">' +
+  return '<div style="font-family:sans-serif;font-size:14px;line-height:1.8;color:#202124;">' +
     escapeHtmlForMail_(body).replace(/\n/g, '<br>') +
     '</div>';
 }
