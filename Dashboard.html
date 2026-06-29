@@ -445,6 +445,25 @@
       margin-bottom: 12px;
     }
 
+    .detail-analysis-table th,
+    .detail-analysis-table td {
+      text-align: left;
+    }
+
+    .detail-analysis-table thead th {
+      text-align: center;
+    }
+
+    .detail-analysis-table th.detail-date-cell,
+    .detail-analysis-table td.detail-date-cell {
+      min-width: 96px;
+      text-align: right;
+    }
+
+    .detail-analysis-table td.detail-datetime-cell {
+      text-align: right;
+    }
+
     .detail-warning { background: #fffbeb; }
     .detail-unapproved { background: #fef2f2; }
 
@@ -994,10 +1013,10 @@
         : rows.map(function(row) {
           const klass = row.reason === '未承認' ? 'detail-unapproved' : (row.reason === '問題なし' ? '' : 'detail-warning');
           return '<tr class="' + klass + '">' +
-            '<td>' + escapeHtml(row.targetDate) + '</td>' +
-            '<td>' + escapeHtml(row.empName) + '</td>' +
-            '<td>' + escapeHtml(row.applyDateTime) + '</td>' +
-            '<td>' + escapeHtml(row.approveDateTime) + '</td>' +
+            '<td class="detail-date-cell">' + escapeHtml(row.targetDate) + '</td>' +
+            '<td class="detail-text-cell">' + escapeHtml(row.empName) + '</td>' +
+            '<td class="detail-datetime-cell">' + escapeHtml(row.applyDateTime) + '</td>' +
+            '<td class="detail-datetime-cell">' + escapeHtml(row.approveDateTime) + '</td>' +
             '<td>' + escapeHtml(row.beforeApplyJudge) + '</td>' +
             '<td>' + escapeHtml(row.beforeApproveJudge) + '</td>' +
             '<td>' + escapeHtml(row.reason) + '</td>' +
@@ -1011,13 +1030,13 @@
         </div>
         <div class="analysis-text">${escapeHtml(data && data.analysisText ? data.analysisText : '')}</div>
         <div class="table-wrap">
-          <table>
+          <table class="detail-analysis-table">
             <thead>
               <tr>
-                <th>対象日</th>
-                <th>対象者</th>
-                <th>申請日時</th>
-                <th>承認日時</th>
+                <th class="detail-date-cell">対象日</th>
+                <th class="detail-text-cell">対象者</th>
+                <th class="detail-datetime-cell">申請日時</th>
+                <th class="detail-datetime-cell">承認日時</th>
                 <th>定時前申請</th>
                 <th>当日定時前承認</th>
                 <th>判定理由</th>
