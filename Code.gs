@@ -3494,7 +3494,7 @@ function buildWeeklyExecutiveMailBody_(dashboardData) {
     return [
       '役員各位',
       '',
-      'お疲れさまでございます。',
+      'お疲れさまです。',
       '残業申請・承認状況の週次レポートにつきまして、データ取得時に確認事項が発生しております。',
       '',
       message,
@@ -3520,7 +3520,7 @@ function buildWeeklyExecutiveMailBody_(dashboardData) {
   return [
     '役員各位',
     '',
-    'お疲れさまでございます。',
+    'お疲れ様です。',
     '残業申請・承認状況の週次レポートをお送りいたします。',
     '',
     `対象週：${weekLabel}${weekRange ? '（' + weekRange + '）' : ''}`,
