@@ -2546,6 +2546,8 @@ function appendImportLog_(log) {
     formatHeaderRow_(sheet, 1, 11);
   }
 
+  repairImportLogLegacyRows_(sheet);
+
   sheet.appendRow([
     new Date(),
     log.importType || '',
@@ -2561,6 +2563,61 @@ function appendImportLog_(log) {
   ]);
 
   sheet.getRange('A:A').setNumberFormat('yyyy/mm/dd hh:mm');
+}
+
+function repairImportLogLegacyRows_(sheet) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    return;
+  }
+
+  const range = sheet.getRange(2, 1, lastRow - 1, 11);
+  const values = range.getValues();
+  let changed = false;
+
+  values.forEach(row => {
+    const importMethod = row[5];
+    const importCount = row[6];
+    const result = row[7];
+
+    if (!looksLikeImportCount_(importMethod)) {
+      return;
+    }
+
+    if (isBlank_(importCount) && looksLikeImportResult_(result)) {
+      row[6] = importMethod;
+      row[5] = '';
+      changed = true;
+      return;
+    }
+
+    if (looksLikeImportResult_(importCount)) {
+      row[10] = row[9];
+      row[9] = row[8];
+      row[8] = result;
+      row[7] = importCount;
+      row[6] = importMethod;
+      row[5] = '';
+      changed = true;
+    }
+  });
+
+  if (changed) {
+    range.setValues(values);
+  }
+}
+
+function looksLikeImportCount_(value) {
+  if (typeof value === 'number') {
+    return !isNaN(value);
+  }
+  const text = String(value || '').trim();
+  return /^\d+$/.test(text);
+}
+
+function looksLikeImportResult_(value) {
+  const text = String(value || '').trim();
+  return ['成功', '確認あり', '失敗', '対象なし'].includes(text) || /成功|失敗|確認|対象なし/.test(text);
 }
 
 /**
