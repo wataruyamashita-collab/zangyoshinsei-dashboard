@@ -3040,11 +3040,11 @@ function importLatestTeamSpiritCsvFromGmail(options) {
         const attachmentId = `${message.getId()}:${fileName}:${attachment.getBytes().length}`;
         if (processed[attachmentId] && !includeProcessedAttachments) continue;
 
-        const csvText = attachment.getDataAsString(normalizeGmailImportCharset_(settings.gmailImportEncoding));
+        const detectedCsv = detectGmailAttachmentCsvEncoding_(attachment, settings.gmailImportEncoding);
         const result = importCsvTextPayload_({
           fileName: fileName,
-          encoding: settings.gmailImportEncoding || 'UTF-8',
-          csvText: csvText
+          encoding: detectedCsv.encoding,
+          csvText: detectedCsv.csvText
         }, {
           importType: executionType === '手動取込' ? 'メールCSV手動取込' : 'メールCSV自動取込',
           importMethod: 'Gmail添付CSV',
@@ -3180,6 +3180,52 @@ function normalizeGmailImportCharset_(encoding) {
     return 'Shift_JIS';
   }
   return 'UTF-8';
+}
+
+function detectGmailAttachmentCsvEncoding_(attachment, preferredEncoding) {
+  const preferred = normalizeGmailImportCharset_(preferredEncoding);
+  const candidates = ['UTF-8', 'Shift_JIS'].map(encoding => {
+    const csvText = attachment.getDataAsString(encoding);
+    const headerLine = normalizeCsvText_(csvText).split('\n')[0] || '';
+
+    return {
+      encoding: encoding,
+      csvText: csvText,
+      requiredHeaderMatches: countRequiredHeaderMatchesInHeaderLine_(headerLine),
+      preferred: encoding === preferred
+    };
+  });
+
+  candidates.sort((a, b) => {
+    if (a.requiredHeaderMatches !== b.requiredHeaderMatches) {
+      return b.requiredHeaderMatches - a.requiredHeaderMatches;
+    }
+    if (a.preferred !== b.preferred) {
+      return a.preferred ? -1 : 1;
+    }
+    return a.encoding === 'UTF-8' ? -1 : 1;
+  });
+
+  return {
+    encoding: candidates[0].encoding,
+    csvText: candidates[0].csvText
+  };
+}
+
+function countRequiredHeaderMatchesInHeaderLine_(headerLine) {
+  return [',', '\t']
+    .map(delimiter => parseHeaderLineForEncodingDetection_(headerLine, delimiter))
+    .map(headers => countRequiredHeaderMatches_(headers))
+    .reduce((max, count) => Math.max(max, count), 0);
+}
+
+function parseHeaderLineForEncodingDetection_(headerLine, delimiter) {
+  try {
+    const parsed = Utilities.parseCsv(headerLine, delimiter);
+    return parsed && parsed.length > 0 ? parsed[0].map(header => String(header).trim()) : [];
+  } catch (error) {
+    return String(headerLine || '').split(delimiter).map(header => String(header).trim());
+  }
 }
 
 function getProcessedGmailAttachmentIds_() {
