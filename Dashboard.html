@@ -975,7 +975,7 @@
 
       google.script.run
         .withSuccessHandler(function(data) {
-          renderDeptWeeklyAnalysis(data, deptName, categoryName);
+          renderDeptWeeklyAnalysis(data, deptName, categoryName, containerId);
         })
         .withFailureHandler(function(error) {
           container.innerHTML = '<div class="error-box">詳細情報の取得時にエラーが発生しました。\n\n' + escapeHtml(error && error.message ? error.message : error) + '</div>';
@@ -983,9 +983,9 @@
         .getDeptWeeklyAnalysisData(deptName, periodLabel, periodLabel);
     }
 
-    function renderDeptWeeklyAnalysis(data, deptName, categoryName) {
-      const analysisId = categoryName === '営業拠点' ? 'analysis-container-sales' : 'analysis-container-staff';
-      const container = document.getElementById(analysisId);
+    function renderDeptWeeklyAnalysis(data, deptName, categoryName, analysisId) {
+      const containerId = analysisId || (categoryName === '営業拠点' ? 'analysis-container-sales' : 'analysis-container-staff');
+      const container = document.getElementById(containerId);
       const rows = data && Array.isArray(data.detailRows)
         ? data.detailRows.filter(function(row) { return row && row.reason !== '問題なし'; })
         : [];
