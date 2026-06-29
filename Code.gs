@@ -3473,10 +3473,10 @@ function getDeptWeeklyAnalysisData(deptName, weekStartDate, periodLabel) {
     emptyDeptSummaryRow_(canonicalDeptName, '');
   const detailRows = buildDeptWeeklyDetailRows_(accumInfo.rows, canonicalDeptName, weekStart || targetWeekKey, accumInfo.headers);
 
-  return {
+  return JSON.stringify({
     analysisText: buildDeptWeeklyAnalysisText_(summaryRow, periodLabel || targetWeekKey),
     detailRows: detailRows
-  };
+  });
 }
 
 function parseDeptWeeklyAnalysisWeekStart_(value) {
@@ -3721,9 +3721,10 @@ function getLatestImportLog_() {
     return {};
   }
 
-  const values = sheet.getDataRange().getValues();
-  const headers = values[0].map(v => String(v || '').trim());
-  const last = values[values.length - 1];
+  const lastRow = sheet.getLastRow();
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v || '').trim());
+  const last = sheet.getRange(lastRow, 1, 1, lastCol).getValues()[0];
   const index = {};
   headers.forEach((h, i) => index[h] = i);
 

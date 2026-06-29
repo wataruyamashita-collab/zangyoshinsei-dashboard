@@ -994,7 +994,7 @@
 
       google.script.run
         .withSuccessHandler(function(data) {
-          renderDeptWeeklyAnalysis(data, deptName, categoryName, containerId);
+          renderDeptWeeklyAnalysis(normalizeJsonPayload(data, '週次詳細データ'), deptName, categoryName, containerId);
         })
         .withFailureHandler(function(error) {
           container.innerHTML = '<div class="error-box">詳細情報の取得時にエラーが発生しました。\n\n' + escapeHtml(error && error.message ? error.message : error) + '</div>';
@@ -1046,6 +1046,22 @@
           </table>
         </div>
       `;
+    }
+
+    function normalizeJsonPayload(data, label) {
+      if (typeof data !== 'string') {
+        return data || {};
+      }
+
+      try {
+        return JSON.parse(data);
+      } catch (error) {
+        return {
+          analysisText: (label || 'データ') + 'の解析に失敗しました。\n\n' +
+            (error && error.message ? error.message : error),
+          detailRows: []
+        };
+      }
     }
 
     function renderCountCell(value, diff, compareLabel) {
