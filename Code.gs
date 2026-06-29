@@ -3572,8 +3572,8 @@ function buildDeptWeeklyDetailRows_(records, deptName, weekStartDate, headers) {
       targetDate: formatDateForDisplay_(targetDate),
       empName: String(getByName(row, '残業申請:申請対象社員名') || getByName(row, '社員名') || ''),
       deptName: canonicalDeptName,
-      applyDateTime: formatDateTimeForDisplay_(applyDateTime || applyValue),
-      approveDateTime: formatDateTimeForDisplay_(approveDateTime || approveValue),
+      applyDateTime: formatDateTimeMinuteForDisplay_(applyDateTime || applyValue),
+      approveDateTime: formatDateTimeMinuteForDisplay_(approveDateTime || approveValue),
       beforeApplyJudge: beforeApply ? 'OK' : 'NG',
       beforeApproveJudge: beforeApprove ? 'OK' : 'NG',
       notApprovedJudge: isBlank_(approveValue) ? '未承認' : '',
@@ -3768,6 +3768,19 @@ function getCurrentErrorCount_() {
   });
 
   return count;
+}
+
+/**
+詳細表示用の日時表示（秒なし）
+*/
+function formatDateTimeMinuteForDisplay_(value) {
+  const date = parseDate_(value);
+
+  if (!date) {
+    return value ? String(value).replace(/(\d{1,2}:\d{2}):\d{2}(?=$|\s)/, '$1') : '';
+  }
+
+  return Utilities.formatDate(date, TS_CONFIG.TIMEZONE, 'yyyy/MM/dd HH:mm');
 }
 
 /**
