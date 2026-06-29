@@ -3187,16 +3187,11 @@ function detectGmailAttachmentCsvEncoding_(attachment, preferredEncoding) {
   const candidates = ['UTF-8', 'Shift_JIS'].map(encoding => {
     const csvText = attachment.getDataAsString(encoding);
     const headerLine = normalizeCsvText_(csvText).split('\n')[0] || '';
-    const normalizedHeaderLine = normalizeHeader_(headerLine);
-    const requiredHeaderMatches = TS_CONFIG.REQUIRED_HEADERS
-      .map(normalizeHeader_)
-      .filter(required => required && normalizedHeaderLine.includes(required))
-      .length;
 
     return {
       encoding: encoding,
       csvText: csvText,
-      requiredHeaderMatches: requiredHeaderMatches,
+      requiredHeaderMatches: countRequiredHeaderMatchesInHeaderLine_(headerLine),
       preferred: encoding === preferred
     };
   });
@@ -3215,6 +3210,22 @@ function detectGmailAttachmentCsvEncoding_(attachment, preferredEncoding) {
     encoding: candidates[0].encoding,
     csvText: candidates[0].csvText
   };
+}
+
+function countRequiredHeaderMatchesInHeaderLine_(headerLine) {
+  return [',', '\t']
+    .map(delimiter => parseHeaderLineForEncodingDetection_(headerLine, delimiter))
+    .map(headers => countRequiredHeaderMatches_(headers))
+    .reduce((max, count) => Math.max(max, count), 0);
+}
+
+function parseHeaderLineForEncodingDetection_(headerLine, delimiter) {
+  try {
+    const parsed = Utilities.parseCsv(headerLine, delimiter);
+    return parsed && parsed.length > 0 ? parsed[0].map(header => String(header).trim()) : [];
+  } catch (error) {
+    return String(headerLine || '').split(delimiter).map(header => String(header).trim());
+  }
 }
 
 function getProcessedGmailAttachmentIds_() {
