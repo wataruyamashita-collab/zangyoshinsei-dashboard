@@ -106,7 +106,8 @@ function onOpen() {
     .addItem('Gmail添付CSVを取り込み', 'runGmailCsvImportFromMenu')
     .addItem('Gmail自動取込を毎時設定', 'installHourlyGmailAutoImportTrigger')
     .addItem('役員向け週次メールを金曜13時に設定', 'installWeeklyExecutiveMailTrigger')
-    .addItem('役員向け週次メールを今すぐ送信', 'sendWeeklyExecutiveDashboardMailFromMenu')
+    .addItem('役員向け週次メール確認通知を金曜9時に設定', 'installWeeklyExecutiveDraftWebhookTrigger')
+    .addItem('役員向け週次メールの下書きを作成', 'sendWeeklyExecutiveDashboardMailFromMenu')
     .addItem('エラー一覧を更新', 'refreshErrorListFromRaw')
     .addSeparator()
     .addItem('対象月を確定にする', 'markCurrentMonthAsFinal')
@@ -565,9 +566,14 @@ function ensureDefaultSettings_() {
     ['役員向け週次メールTo', WEEKLY_EXECUTIVE_MAIL_TO.join(','), '毎週金曜13時に送信する役員向け週次メールのTo。カンマ区切りで複数指定できます。'],
     ['役員向け週次メールCc', WEEKLY_EXECUTIVE_MAIL_CC.join(','), '毎週金曜13時に送信する役員向け週次メールのCc。カンマ区切りで複数指定できます。'],
     ['役員向け週次メールトリガー', '', '役員向け週次メール送信トリガーの設定状態'],
-    ['役員向け週次メール送信結果', '', '役員向け週次メールの直近送信結果'],
-    ['役員向け週次メール送信メッセージ', '', '役員向け週次メールの直近送信メッセージ'],
-    ['役員向け週次メール送信日時', '', '役員向け週次メールを送信した日時。yyyy/MM/dd HH:mm:ss形式'],
+    ['役員向け週次メール送信結果', '', '役員向け週次メールの直近送信・下書き作成結果'],
+    ['役員向け週次メール送信メッセージ', '', '役員向け週次メールの直近送信・下書き作成メッセージ'],
+    ['役員向け週次メール送信日時', '', '役員向け週次メールを送信または下書き作成した日時。yyyy/MM/dd HH:mm:ss形式'],
+    ['役員向け週次メール確認Webhook URL', '', '毎週金曜9時に下書き確認依頼を通知するWebhook URL。SlackやGoogle Chat等のIncoming Webhookを設定します。'],
+    ['役員向け週次メール確認Webhookトリガー', '', '毎週金曜9時の下書き作成・確認通知トリガーの設定状態'],
+    ['役員向け週次メール確認Webhook結果', '', '下書き作成・確認通知Webhookの直近実行結果'],
+    ['役員向け週次メール確認Webhookメッセージ', '', '下書き作成・確認通知Webhookの直近実行メッセージ'],
+    ['役員向け週次メール確認Webhook日時', '', '下書き作成・確認通知Webhookを実行した日時。yyyy/MM/dd HH:mm:ss形式'],
     ['最終取込日時', '', '取込完了時刻'],
     ['ダッシュボード注記', '本資料は、TeamSpiritに登録された残業申請・承認データに基づき、事前申請および事前承認の状況を集計したものです。\n勤怠締め前の数値は速報値であり、申請・承認状況の更新により変更となる場合があります。', '表示用注記']
   ];
@@ -2449,6 +2455,11 @@ function getSettings_() {
     weeklyExecutiveMailResult: '',
     weeklyExecutiveMailMessage: '',
     weeklyExecutiveMailTime: '',
+    weeklyExecutiveDraftWebhookUrl: '',
+    weeklyExecutiveDraftWebhookTrigger: '',
+    weeklyExecutiveDraftWebhookResult: '',
+    weeklyExecutiveDraftWebhookMessage: '',
+    weeklyExecutiveDraftWebhookTime: '',
     lastImportTime: '',
     dashboardNote: ''
   };
@@ -2489,6 +2500,11 @@ function getSettings_() {
     if (key === '役員向け週次メール送信結果') settings.weeklyExecutiveMailResult = String(val || '').trim();
     if (key === '役員向け週次メール送信メッセージ') settings.weeklyExecutiveMailMessage = String(val || '').trim();
     if (key === '役員向け週次メール送信日時') settings.weeklyExecutiveMailTime = val;
+    if (key === '役員向け週次メール確認Webhook URL') settings.weeklyExecutiveDraftWebhookUrl = String(val || '').trim();
+    if (key === '役員向け週次メール確認Webhookトリガー') settings.weeklyExecutiveDraftWebhookTrigger = String(val || '').trim();
+    if (key === '役員向け週次メール確認Webhook結果') settings.weeklyExecutiveDraftWebhookResult = String(val || '').trim();
+    if (key === '役員向け週次メール確認Webhookメッセージ') settings.weeklyExecutiveDraftWebhookMessage = String(val || '').trim();
+    if (key === '役員向け週次メール確認Webhook日時') settings.weeklyExecutiveDraftWebhookTime = val;
     if (key === '最終取込日時') settings.lastImportTime = val;
     if (key === 'ダッシュボード注記') settings.dashboardNote = val;
   }
@@ -3259,16 +3275,16 @@ function recordGmailMailImportStatus_(result, message, executionType) {
 }
 
 /**
-役員向け週次メールを手動送信する。
+役員向け週次メールを手動確認できるよう、Gmail下書きを作成する。
 */
 function sendWeeklyExecutiveDashboardMailFromMenu() {
   const ui = SpreadsheetApp.getUi();
   try {
-    const result = sendWeeklyExecutiveDashboardMail();
-    ui.alert('役員向け週次メールを送信しました。\n\n' + result.message);
+    const result = createWeeklyExecutiveDashboardMailDraft();
+    ui.alert('役員向け週次メールの下書きを作成しました。\n\nGmailの下書きフォルダで文面をご確認ください。\n\n' + result.message);
   } catch (error) {
     const message = error && error.message ? error.message : String(error);
-    ui.alert('役員向け週次メールの送信に失敗しました。\n\n' + message);
+    ui.alert('役員向け週次メールの下書き作成に失敗しました。\n\n' + message);
     throw error;
   }
 }
@@ -3309,36 +3325,106 @@ function deleteWeeklyExecutiveMailTriggers_() {
 }
 
 /**
+毎週金曜日9時に役員向け週次メール下書きを作成し、Webhookで確認依頼を通知する。
+*/
+function installWeeklyExecutiveDraftWebhookTrigger() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  ensureSpreadsheetTimeZone_(ss);
+  ensureBaseSheets_(ss);
+  ensureDefaultSettings_();
+  const result = ensureWeeklyExecutiveDraftWebhookTrigger_();
+  SpreadsheetApp.getUi().alert(result.message);
+}
+
+function ensureWeeklyExecutiveDraftWebhookTrigger_() {
+  deleteWeeklyExecutiveDraftWebhookTriggers_();
+  ScriptApp.newTrigger('createWeeklyExecutiveDraftAndNotifyWebhook')
+    .timeBased()
+    .onWeekDay(ScriptApp.WeekDay.FRIDAY)
+    .atHour(9)
+    .inTimezone(TS_CONFIG.TIMEZONE)
+    .create();
+  const message = '毎週金曜日9時（Asia/Tokyo）下書き作成・Webhook確認通知トリガーを設定済み';
+  setSettingValuesBulk_({
+    '役員向け週次メール確認Webhookトリガー': message
+  });
+  return { ok: true, message: message };
+}
+
+function deleteWeeklyExecutiveDraftWebhookTriggers_() {
+  ScriptApp.getProjectTriggers().forEach(trigger => {
+    if (trigger.getHandlerFunction() === 'createWeeklyExecutiveDraftAndNotifyWebhook') {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
+}
+
+/**
+時間主導トリガー用：Gmail下書きを作成し、Slack/Google Chat等のWebhookへ確認依頼を通知する。
+*/
+function createWeeklyExecutiveDraftAndNotifyWebhook() {
+  try {
+    const draftResult = createWeeklyExecutiveDashboardMailDraft();
+    const settings = getSettings_();
+    const webhookUrl = String(settings.weeklyExecutiveDraftWebhookUrl || '').trim();
+    if (!webhookUrl) {
+      throw new Error('役員向け週次メール確認Webhook URLが設定されていません。設定シートにWebhook URLを入力してください。');
+    }
+
+    const message = buildWeeklyExecutiveDraftWebhookMessage_(draftResult);
+    UrlFetchApp.fetch(webhookUrl, {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify({ text: message }),
+      muteHttpExceptions: false
+    });
+
+    recordWeeklyExecutiveDraftWebhookStatus_('通知成功', message);
+    return { ok: true, message: message };
+  } catch (error) {
+    const message = error && error.message ? error.message : String(error);
+    recordWeeklyExecutiveDraftWebhookStatus_('通知失敗', message);
+    throw error;
+  }
+}
+
+function buildWeeklyExecutiveDraftWebhookMessage_(draftResult) {
+  const settings = getSettings_();
+  const targetWeek = settings.targetWeek || '';
+  const weekRange = settings.weekStart && settings.weekEnd ? `${formatDateForDisplay_(settings.weekStart)}〜${formatDateForDisplay_(settings.weekEnd)}` : '';
+  return [
+    '【確認依頼】役員向け週次メールの下書きを作成しました。',
+    targetWeek ? `対象週：${targetWeek}${weekRange ? '（' + weekRange + '）' : ''}` : '',
+    'Gmailの下書きフォルダで、宛先・本文・所感・閲覧用URLをご確認ください。',
+    '確認後、必要に応じて文面を修正し、問題なければ送信してください。',
+    draftResult && draftResult.message ? `下書き情報：${draftResult.message}` : ''
+  ].filter(Boolean).join('\n');
+}
+
+function recordWeeklyExecutiveDraftWebhookStatus_(result, message) {
+  setSettingValuesBulk_({
+    '役員向け週次メール確認Webhook結果': result,
+    '役員向け週次メール確認Webhookメッセージ': message,
+    '役員向け週次メール確認Webhook日時': formatDateTimeForKey_(new Date())
+  });
+}
+
+/**
 時間主導トリガー用の役員向け週次メール送信エントリーポイント。
 */
 function sendWeeklyExecutiveDashboardMail() {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    ensureSpreadsheetTimeZone_(ss);
-    ensureBaseSheets_(ss);
-    ensureDefaultSettings_();
-
-    const settings = getSettings_();
-    const to = normalizeMailAddressList_(settings.weeklyExecutiveMailTo || WEEKLY_EXECUTIVE_MAIL_TO.join(','));
-    const cc = normalizeMailAddressList_(settings.weeklyExecutiveMailCc || WEEKLY_EXECUTIVE_MAIL_CC.join(','));
-    if (!to) {
-      throw new Error('役員向け週次メールToが設定されていません。');
-    }
-
-    const dashboardData = getHtmlDashboardDataCore_();
-    const subject = buildWeeklyExecutiveMailSubject_(dashboardData);
-    const body = buildWeeklyExecutiveMailBody_(dashboardData);
-    const htmlBody = buildWeeklyExecutiveMailHtmlBody_(body);
+    const mail = buildWeeklyExecutiveMail_();
 
     MailApp.sendEmail({
-      to: to,
-      cc: cc,
-      subject: subject,
-      body: body,
-      htmlBody: htmlBody
+      to: mail.to,
+      cc: mail.cc,
+      subject: mail.subject,
+      body: mail.body,
+      htmlBody: mail.htmlBody
     });
 
-    const message = `To：${to}／Cc：${cc || 'なし'}／件名：${subject}`;
+    const message = `To：${mail.to}／Cc：${mail.cc || 'なし'}／件名：${mail.subject}`;
     recordWeeklyExecutiveMailStatus_('送信成功', message);
     return { ok: true, message: message };
   } catch (error) {
@@ -3346,6 +3432,55 @@ function sendWeeklyExecutiveDashboardMail() {
     recordWeeklyExecutiveMailStatus_('送信失敗', message);
     throw error;
   }
+}
+
+/**
+手動確認用にGmailの下書きを作成する。
+毎週金曜13時の自動処理は sendWeeklyExecutiveDashboardMail で実送信する。
+*/
+function createWeeklyExecutiveDashboardMailDraft() {
+  try {
+    const mail = buildWeeklyExecutiveMail_();
+    GmailApp.createDraft(mail.to, mail.subject, mail.body, {
+      cc: mail.cc,
+      htmlBody: mail.htmlBody
+    });
+
+    const message = `To：${mail.to}／Cc：${mail.cc || 'なし'}／件名：${mail.subject}`;
+    recordWeeklyExecutiveMailStatus_('下書き作成', message);
+    return { ok: true, message: message };
+  } catch (error) {
+    const message = error && error.message ? error.message : String(error);
+    recordWeeklyExecutiveMailStatus_('下書き作成失敗', message);
+    throw error;
+  }
+}
+
+function buildWeeklyExecutiveMail_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  ensureSpreadsheetTimeZone_(ss);
+  ensureBaseSheets_(ss);
+  ensureDefaultSettings_();
+
+  const settings = getSettings_();
+  const to = normalizeMailAddressList_(settings.weeklyExecutiveMailTo || WEEKLY_EXECUTIVE_MAIL_TO.join(','));
+  const cc = normalizeMailAddressList_(settings.weeklyExecutiveMailCc || WEEKLY_EXECUTIVE_MAIL_CC.join(','));
+  if (!to) {
+    throw new Error('役員向け週次メールToが設定されていません。');
+  }
+
+  const dashboardData = getHtmlDashboardDataCore_();
+  const subject = buildWeeklyExecutiveMailSubject_(dashboardData);
+  const body = buildWeeklyExecutiveMailBody_(dashboardData);
+  const htmlBody = buildWeeklyExecutiveMailHtmlBody_(body);
+
+  return {
+    to: to,
+    cc: cc,
+    subject: subject,
+    body: body,
+    htmlBody: htmlBody
+  };
 }
 
 function buildWeeklyExecutiveMailSubject_(dashboardData) {
@@ -3359,7 +3494,7 @@ function buildWeeklyExecutiveMailBody_(dashboardData) {
     return [
       '役員各位',
       '',
-      'お疲れさまでございます。',
+      'お疲れさまです。',
       '残業申請・承認状況の週次レポートにつきまして、データ取得時に確認事項が発生しております。',
       '',
       message,
@@ -3372,18 +3507,20 @@ function buildWeeklyExecutiveMailBody_(dashboardData) {
 
   const weekly = dashboardData.weekly || {};
   const settings = dashboardData.settings || {};
-  const staffCurrent = (weekly.staff && weekly.staff.current) || {};
-  const salesCurrent = (weekly.sales && weekly.sales.current) || {};
+  const staffPayload = weekly.staff || {};
+  const salesPayload = weekly.sales || {};
+  const staffCurrent = staffPayload.current || {};
+  const salesCurrent = salesPayload.current || {};
   const dashboardUrl = getViewerDashboardUrl_();
   const generatedAt = dashboardData.generatedAt || formatDateTimeForKey_(new Date());
   const weekLabel = weekly.label || settings.targetWeek || '';
   const weekRange = settings.weekStart && settings.weekEnd ? `${settings.weekStart}〜${settings.weekEnd}` : '';
-  const comments = buildWeeklyExecutiveMailComments_(staffCurrent, salesCurrent, settings.alertThreshold);
+  const comments = buildWeeklyExecutiveMailComments_(staffPayload, salesPayload, settings.alertThreshold);
 
   return [
     '役員各位',
     '',
-    'お疲れさまでございます。',
+    'お疲れ様です。',
     '残業申請・承認状況の週次レポートをお送りいたします。',
     '',
     `対象週：${weekLabel}${weekRange ? '（' + weekRange + '）' : ''}`,
@@ -3403,10 +3540,24 @@ function buildWeeklyExecutiveMailBody_(dashboardData) {
   ].join('\n');
 }
 
-function buildWeeklyExecutiveMailComments_(staffCurrent, salesCurrent, threshold) {
+function buildWeeklyExecutiveMailComments_(staffPayload, salesPayload, threshold) {
   const alertThreshold = parseRate_(threshold, 0.8);
+  const staffCurrent = (staffPayload && staffPayload.current) || {};
+  const salesCurrent = (salesPayload && salesPayload.current) || {};
   const staffApproveRate = Number(staffCurrent.beforeApproveRate || 0);
   const salesApproveRate = Number(salesCurrent.beforeApproveRate || 0);
+  const staffInsight = buildWeeklyExecutiveCategoryInsight_('スタッフ部門', staffPayload, alertThreshold);
+  const salesInsight = buildWeeklyExecutiveCategoryInsight_('営業部門参考', salesPayload, alertThreshold);
+  const overallComment = buildWeeklyExecutiveOverallComment_(staffApproveRate, salesApproveRate, alertThreshold);
+
+  return [
+    overallComment,
+    staffInsight,
+    salesInsight
+  ].join('\n');
+}
+
+function buildWeeklyExecutiveOverallComment_(staffApproveRate, salesApproveRate, alertThreshold) {
   if (staffApproveRate >= alertThreshold && salesApproveRate >= alertThreshold) {
     return '当日定時前承認率はいずれも基準値以上で推移しております。引き続き、事前申請・事前承認の徹底状況を継続確認してまいります。';
   }
@@ -3417,6 +3568,49 @@ function buildWeeklyExecutiveMailComments_(staffCurrent, salesCurrent, threshold
     return 'スタッフ部門の当日定時前承認率が基準値を下回っております。対象部署を確認のうえ、承認遅延の要因把握と改善を進めてまいります。';
   }
   return '営業部門参考の当日定時前承認率が基準値を下回っております。対象拠点を確認のうえ、承認遅延の要因把握と改善を進めてまいります。';
+}
+
+function buildWeeklyExecutiveCategoryInsight_(categoryName, categoryPayload, alertThreshold) {
+  const payload = categoryPayload || {};
+  const current = payload.current || {};
+  const previous = payload.previous || {};
+  const diff = payload.diff || {};
+  const currentApproveRate = Number(current.beforeApproveRate || 0);
+  const previousApproveRate = Number(previous.beforeApproveRate || 0);
+  const approveRateDiff = Number(diff.beforeApproveRate !== undefined ? diff.beforeApproveRate : currentApproveRate - previousApproveRate);
+  const countDiff = Number(diff.count || 0);
+  const notApprovedDiff = Number(diff.notApprovedCount || 0);
+  const approvalTrend = approveRateDiff > 0
+    ? `前週比で${formatPercentPointText_(approveRateDiff)}ポイント改善しています`
+    : approveRateDiff < 0
+      ? `前週比で${formatPercentPointText_(approveRateDiff)}ポイント低下しています`
+      : '前週比では横ばいです';
+  const applicationTrend = countDiff > 0
+    ? `申請件数は前週比で${formatAbsoluteNumberText_(countDiff)}件増加`
+    : countDiff < 0
+      ? `申請件数は前週比で${formatAbsoluteNumberText_(countDiff)}件減少`
+      : '申請件数は前週比で横ばい';
+  const notApprovedTrend = notApprovedDiff > 0
+    ? `未承認件数が前週比で${formatAbsoluteNumberText_(notApprovedDiff)}件増加しているため、早期確認が必要です`
+    : notApprovedDiff < 0
+      ? `未承認件数は前週比で${formatAbsoluteNumberText_(notApprovedDiff)}件減少しており、改善傾向です`
+      : '未承認件数は前週比で横ばいです';
+  const rateAssessment = currentApproveRate >= alertThreshold
+    ? `当日定時前承認率は${formatPercentText_(currentApproveRate)}で基準値を上回っています`
+    : `当日定時前承認率は${formatPercentText_(currentApproveRate)}で基準値を下回っています`;
+
+  return `・${categoryName}：${rateAssessment}。当日定時前承認率は${approvalTrend}。${applicationTrend}、${notApprovedTrend}。`;
+}
+
+function formatAbsoluteNumberText_(value) {
+  const n = Number(value || 0);
+  return String(isNaN(n) ? 0 : Math.abs(n));
+}
+
+function formatPercentPointText_(rateDiff) {
+  const n = Number(rateDiff || 0);
+  const abs = Math.abs(isNaN(n) ? 0 : n) * 100;
+  return abs.toFixed(1);
 }
 
 function buildWeeklyExecutiveMailHtmlBody_(body) {
