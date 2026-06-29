@@ -107,6 +107,7 @@ function onOpen() {
     .addItem('Gmail自動取込を毎時設定', 'installHourlyGmailAutoImportTrigger')
     .addItem('役員向け週次メールを金曜13時に設定', 'installWeeklyExecutiveMailTrigger')
     .addItem('役員向け週次メール確認通知を金曜9時に設定', 'installWeeklyExecutiveDraftWebhookTrigger')
+    .addItem('役員向け週次メールWebhookテスト通知を送信', 'sendWeeklyExecutiveDraftWebhookTestFromMenu')
     .addItem('役員向け週次メールの下書きを作成', 'sendWeeklyExecutiveDashboardMailFromMenu')
     .addItem('エラー一覧を更新', 'refreshErrorListFromRaw')
     .addSeparator()
@@ -3365,19 +3366,8 @@ function deleteWeeklyExecutiveDraftWebhookTriggers_() {
 function createWeeklyExecutiveDraftAndNotifyWebhook() {
   try {
     const draftResult = createWeeklyExecutiveDashboardMailDraft();
-    const settings = getSettings_();
-    const webhookUrl = String(settings.weeklyExecutiveDraftWebhookUrl || '').trim();
-    if (!webhookUrl) {
-      throw new Error('役員向け週次メール確認Webhook URLが設定されていません。設定シートにWebhook URLを入力してください。');
-    }
-
     const message = buildWeeklyExecutiveDraftWebhookMessage_(draftResult);
-    UrlFetchApp.fetch(webhookUrl, {
-      method: 'post',
-      contentType: 'application/json',
-      payload: JSON.stringify({ text: message }),
-      muteHttpExceptions: false
-    });
+    postWeeklyExecutiveDraftWebhook_(message);
 
     recordWeeklyExecutiveDraftWebhookStatus_('通知成功', message);
     return { ok: true, message: message };
@@ -3386,6 +3376,53 @@ function createWeeklyExecutiveDraftAndNotifyWebhook() {
     recordWeeklyExecutiveDraftWebhookStatus_('通知失敗', message);
     throw error;
   }
+}
+
+/**
+設定済みWebhook URLへテスト文章を送信する。
+*/
+function sendWeeklyExecutiveDraftWebhookTestFromMenu() {
+  const ui = SpreadsheetApp.getUi();
+  try {
+    const result = sendWeeklyExecutiveDraftWebhookTest();
+    ui.alert('Webhookテスト通知を送信しました。\n\n' + result.message);
+  } catch (error) {
+    const message = error && error.message ? error.message : String(error);
+    ui.alert('Webhookテスト通知に失敗しました。\n\n' + message);
+    throw error;
+  }
+}
+
+function sendWeeklyExecutiveDraftWebhookTest() {
+  try {
+    const message = [
+      '【テスト通知】役員向け週次メール確認Webhookの疎通確認です。',
+      `送信日時：${formatDateTimeForKey_(new Date())}`,
+      'この通知が届いていれば、毎週金曜日9時の下書き確認依頼を受け取れる状態です。'
+    ].join('\n');
+    postWeeklyExecutiveDraftWebhook_(message);
+    recordWeeklyExecutiveDraftWebhookStatus_('テスト通知成功', message);
+    return { ok: true, message: message };
+  } catch (error) {
+    const message = error && error.message ? error.message : String(error);
+    recordWeeklyExecutiveDraftWebhookStatus_('テスト通知失敗', message);
+    throw error;
+  }
+}
+
+function postWeeklyExecutiveDraftWebhook_(message) {
+  const settings = getSettings_();
+  const webhookUrl = String(settings.weeklyExecutiveDraftWebhookUrl || '').trim();
+  if (!webhookUrl) {
+    throw new Error('役員向け週次メール確認Webhook URLが設定されていません。設定シートにWebhook URLを入力してください。');
+  }
+
+  UrlFetchApp.fetch(webhookUrl, {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify({ text: message }),
+    muteHttpExceptions: false
+  });
 }
 
 function buildWeeklyExecutiveDraftWebhookMessage_(draftResult) {
@@ -3494,7 +3531,7 @@ function buildWeeklyExecutiveMailBody_(dashboardData) {
     return [
       '役員各位',
       '',
-      'お疲れさまです。',
+      'お疲れさまでございます。',
       '残業申請・承認状況の週次レポートにつきまして、データ取得時に確認事項が発生しております。',
       '',
       message,
@@ -3520,7 +3557,7 @@ function buildWeeklyExecutiveMailBody_(dashboardData) {
   return [
     '役員各位',
     '',
-    'お疲れ様です。',
+    'お疲れさまでございます。',
     '残業申請・承認状況の週次レポートをお送りいたします。',
     '',
     `対象週：${weekLabel}${weekRange ? '（' + weekRange + '）' : ''}`,
@@ -3528,7 +3565,7 @@ function buildWeeklyExecutiveMailBody_(dashboardData) {
     '',
     '■ サマリー',
     `・スタッフ部門：申請件数 ${formatNumberText_(staffCurrent.count)}件／定時前申請率 ${formatPercentText_(staffCurrent.beforeApplyRate)}／当日定時前承認率 ${formatPercentText_(staffCurrent.beforeApproveRate)}／未承認 ${formatNumberText_(staffCurrent.notApprovedCount)}件`,
-    `・営業部門参考：申請件数 ${formatNumberText_(salesCurrent.count)}件／定時前申請率 ${formatPercentText_(salesCurrent.beforeApplyRate)}／当日定時前承認率 ${formatPercentText_(salesCurrent.beforeApproveRate)}／未承認 ${formatNumberText_(salesCurrent.notApprovedCount)}件`,
+    `・営業部門（参考）：申請件数 ${formatNumberText_(salesCurrent.count)}件／定時前申請率 ${formatPercentText_(salesCurrent.beforeApplyRate)}／当日定時前承認率 ${formatPercentText_(salesCurrent.beforeApproveRate)}／未承認 ${formatNumberText_(salesCurrent.notApprovedCount)}件`,
     '',
     '■ 所感',
     comments,
@@ -3547,7 +3584,7 @@ function buildWeeklyExecutiveMailComments_(staffPayload, salesPayload, threshold
   const staffApproveRate = Number(staffCurrent.beforeApproveRate || 0);
   const salesApproveRate = Number(salesCurrent.beforeApproveRate || 0);
   const staffInsight = buildWeeklyExecutiveCategoryInsight_('スタッフ部門', staffPayload, alertThreshold);
-  const salesInsight = buildWeeklyExecutiveCategoryInsight_('営業部門参考', salesPayload, alertThreshold);
+  const salesInsight = buildWeeklyExecutiveCategoryInsight_('営業部門（参考）', salesPayload, alertThreshold);
   const overallComment = buildWeeklyExecutiveOverallComment_(staffApproveRate, salesApproveRate, alertThreshold);
 
   return [
@@ -3559,15 +3596,15 @@ function buildWeeklyExecutiveMailComments_(staffPayload, salesPayload, threshold
 
 function buildWeeklyExecutiveOverallComment_(staffApproveRate, salesApproveRate, alertThreshold) {
   if (staffApproveRate >= alertThreshold && salesApproveRate >= alertThreshold) {
-    return '当日定時前承認率はいずれも基準値以上で推移しております。引き続き、事前申請・事前承認の徹底状況を継続確認してまいります。';
+    return '当日定時前承認率は、スタッフ部門及び営業部門（参考）のいずれにおいても基準値以上で推移している。引き続き、事前申請及び事前承認の運用状況を定点的に確認する必要がある。';
   }
   if (staffApproveRate < alertThreshold && salesApproveRate < alertThreshold) {
-    return 'スタッフ部門・営業部門参考ともに当日定時前承認率が基準値を下回っております。該当部門には、事前承認の運用徹底に向けた確認を進めてまいります。';
+    return 'スタッフ部門及び営業部門（参考）の双方において、当日定時前承認率が基準値を下回っている。承認遅延の発生要因を確認し、事前承認の運用徹底に向けた対応状況を把握する必要がある。';
   }
   if (staffApproveRate < alertThreshold) {
-    return 'スタッフ部門の当日定時前承認率が基準値を下回っております。対象部署を確認のうえ、承認遅延の要因把握と改善を進めてまいります。';
+    return 'スタッフ部門において、当日定時前承認率が基準値を下回っている。対象部署を確認の上、承認遅延の要因及び改善対応の進捗を確認する必要がある。';
   }
-  return '営業部門参考の当日定時前承認率が基準値を下回っております。対象拠点を確認のうえ、承認遅延の要因把握と改善を進めてまいります。';
+  return '営業部門（参考）において、当日定時前承認率が基準値を下回っている。対象拠点を確認の上、承認遅延の要因及び改善対応の進捗を確認する必要がある。';
 }
 
 function buildWeeklyExecutiveCategoryInsight_(categoryName, categoryPayload, alertThreshold) {
@@ -3581,23 +3618,23 @@ function buildWeeklyExecutiveCategoryInsight_(categoryName, categoryPayload, ale
   const countDiff = Number(diff.count || 0);
   const notApprovedDiff = Number(diff.notApprovedCount || 0);
   const approvalTrend = approveRateDiff > 0
-    ? `前週比で${formatPercentPointText_(approveRateDiff)}ポイント改善しています`
+    ? `前週比で${formatPercentPointText_(approveRateDiff)}ポイント改善している`
     : approveRateDiff < 0
-      ? `前週比で${formatPercentPointText_(approveRateDiff)}ポイント低下しています`
-      : '前週比では横ばいです';
+      ? `前週比で${formatPercentPointText_(approveRateDiff)}ポイント低下している`
+      : '前週比では横ばいである';
   const applicationTrend = countDiff > 0
     ? `申請件数は前週比で${formatAbsoluteNumberText_(countDiff)}件増加`
     : countDiff < 0
       ? `申請件数は前週比で${formatAbsoluteNumberText_(countDiff)}件減少`
       : '申請件数は前週比で横ばい';
   const notApprovedTrend = notApprovedDiff > 0
-    ? `未承認件数が前週比で${formatAbsoluteNumberText_(notApprovedDiff)}件増加しているため、早期確認が必要です`
+    ? `未承認件数は前週比で${formatAbsoluteNumberText_(notApprovedDiff)}件増加しており、優先的に確認を要する`
     : notApprovedDiff < 0
-      ? `未承認件数は前週比で${formatAbsoluteNumberText_(notApprovedDiff)}件減少しており、改善傾向です`
-      : '未承認件数は前週比で横ばいです';
+      ? `未承認件数は前週比で${formatAbsoluteNumberText_(notApprovedDiff)}件減少しており、改善傾向が認められる`
+      : '未承認件数は前週比で横ばいである';
   const rateAssessment = currentApproveRate >= alertThreshold
-    ? `当日定時前承認率は${formatPercentText_(currentApproveRate)}で基準値を上回っています`
-    : `当日定時前承認率は${formatPercentText_(currentApproveRate)}で基準値を下回っています`;
+    ? `当日定時前承認率は${formatPercentText_(currentApproveRate)}であり、基準値を上回っている`
+    : `当日定時前承認率は${formatPercentText_(currentApproveRate)}であり、基準値を下回っている`;
 
   return `・${categoryName}：${rateAssessment}。当日定時前承認率は${approvalTrend}。${applicationTrend}、${notApprovedTrend}。`;
 }
