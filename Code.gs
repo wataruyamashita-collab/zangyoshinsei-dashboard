@@ -3531,8 +3531,8 @@ function buildWeeklyExecutiveMailBody_(dashboardData) {
     return [
       '役員各位',
       '',
-      'お疲れさまでございます。',
-      '残業申請・承認状況の週次レポートにつきまして、データ取得時に確認事項が発生しております。',
+      'お疲れ様です。',
+      '残業申請・承認状況の週次レポート作成時に、確認が必要な事項が発生しました。',
       '',
       message,
       '',
@@ -3557,8 +3557,8 @@ function buildWeeklyExecutiveMailBody_(dashboardData) {
   return [
     '役員各位',
     '',
-    'お疲れさまでございます。',
-    '残業申請・承認状況の週次レポートをお送りいたします。',
+    'お疲れ様です。',
+    '残業申請・承認状況の週次レポートをお送りします。',
     '',
     `対象週：${weekLabel}${weekRange ? '（' + weekRange + '）' : ''}`,
     `作成日時：${generatedAt}`,
@@ -3596,15 +3596,15 @@ function buildWeeklyExecutiveMailComments_(staffPayload, salesPayload, threshold
 
 function buildWeeklyExecutiveOverallComment_(staffApproveRate, salesApproveRate, alertThreshold) {
   if (staffApproveRate >= alertThreshold && salesApproveRate >= alertThreshold) {
-    return '当日定時前承認率は、スタッフ部門及び営業部門（参考）のいずれにおいても基準値以上で推移している。引き続き、事前申請及び事前承認の運用状況を定点的に確認する必要がある。';
+    return '当日定時前承認率は、スタッフ部門・営業部門（参考）ともに基準値以上です。引き続き、事前申請・事前承認の運用状況を確認してまいります。';
   }
   if (staffApproveRate < alertThreshold && salesApproveRate < alertThreshold) {
-    return 'スタッフ部門及び営業部門（参考）の双方において、当日定時前承認率が基準値を下回っている。承認遅延の発生要因を確認し、事前承認の運用徹底に向けた対応状況を把握する必要がある。';
+    return 'スタッフ部門・営業部門（参考）ともに、当日定時前承認率が基準値を下回っています。承認遅延の要因を確認し、事前承認の運用徹底に向けた対応状況を確認します。';
   }
   if (staffApproveRate < alertThreshold) {
-    return 'スタッフ部門において、当日定時前承認率が基準値を下回っている。対象部署を確認の上、承認遅延の要因及び改善対応の進捗を確認する必要がある。';
+    return 'スタッフ部門で当日定時前承認率が基準値を下回っています。対象部署の状況を確認し、承認遅延の要因と改善対応を確認します。';
   }
-  return '営業部門（参考）において、当日定時前承認率が基準値を下回っている。対象拠点を確認の上、承認遅延の要因及び改善対応の進捗を確認する必要がある。';
+  return '営業部門（参考）で当日定時前承認率が基準値を下回っています。対象拠点の状況を確認し、承認遅延の要因と改善対応を確認します。';
 }
 
 function buildWeeklyExecutiveCategoryInsight_(categoryName, categoryPayload, alertThreshold) {
@@ -3618,23 +3618,23 @@ function buildWeeklyExecutiveCategoryInsight_(categoryName, categoryPayload, ale
   const countDiff = Number(diff.count || 0);
   const notApprovedDiff = Number(diff.notApprovedCount || 0);
   const approvalTrend = approveRateDiff > 0
-    ? `前週比で${formatPercentPointText_(approveRateDiff)}ポイント改善している`
+    ? `前週比で${formatPercentPointText_(approveRateDiff)}ポイント改善しています`
     : approveRateDiff < 0
-      ? `前週比で${formatPercentPointText_(approveRateDiff)}ポイント低下している`
-      : '前週比では横ばいである';
+      ? `前週比で${formatPercentPointText_(approveRateDiff)}ポイント低下しています`
+      : '前週比では横ばいです';
   const applicationTrend = countDiff > 0
     ? `申請件数は前週比で${formatAbsoluteNumberText_(countDiff)}件増加`
     : countDiff < 0
       ? `申請件数は前週比で${formatAbsoluteNumberText_(countDiff)}件減少`
       : '申請件数は前週比で横ばい';
   const notApprovedTrend = notApprovedDiff > 0
-    ? `未承認件数は前週比で${formatAbsoluteNumberText_(notApprovedDiff)}件増加しており、優先的に確認を要する`
+    ? `未承認件数は前週比で${formatAbsoluteNumberText_(notApprovedDiff)}件増加しているため、優先的に確認します`
     : notApprovedDiff < 0
-      ? `未承認件数は前週比で${formatAbsoluteNumberText_(notApprovedDiff)}件減少しており、改善傾向が認められる`
-      : '未承認件数は前週比で横ばいである';
+      ? `未承認件数は前週比で${formatAbsoluteNumberText_(notApprovedDiff)}件減少しており、改善傾向です`
+      : '未承認件数は前週比で横ばいです';
   const rateAssessment = currentApproveRate >= alertThreshold
-    ? `当日定時前承認率は${formatPercentText_(currentApproveRate)}であり、基準値を上回っている`
-    : `当日定時前承認率は${formatPercentText_(currentApproveRate)}であり、基準値を下回っている`;
+    ? `当日定時前承認率は${formatPercentText_(currentApproveRate)}で、基準値を上回っています`
+    : `当日定時前承認率は${formatPercentText_(currentApproveRate)}で、基準値を下回っています`;
 
   return `・${categoryName}：${rateAssessment}。当日定時前承認率は${approvalTrend}。${applicationTrend}、${notApprovedTrend}。`;
 }
