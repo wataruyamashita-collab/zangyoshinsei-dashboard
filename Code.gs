@@ -1259,12 +1259,12 @@ function detectTargetPeriods_(rows, headerMap) {
 1回の走査で、当月・前月・当週・前週を同時に集計する。
 */
 function buildMonthlyWeeklySummaryBundle_(rows, headers, settings) {
-  const currentMonth = String(settings.targetMonth || '').trim();
+  const headerIndex = buildHeaderIndex_(headers);
+  const currentMonth = resolveMonthlyTargetMonth_(rows, headerIndex, String(settings.targetMonth || '').trim());
   const previousMonth = getPreviousMonthKey_(currentMonth);
   const currentWeek = String(settings.targetWeek || '').trim();
   const previousWeek = getPreviousWeekKey_(currentWeek);
 
-  const headerIndex = buildHeaderIndex_(headers);
   const deptMaster = getDeptMaster_();
   const indexes = {
     targetFlag: findHeaderIndex_(headerIndex, '集計対象'),
@@ -1363,6 +1363,47 @@ function buildMonthlyWeeklySummaryBundle_(rows, headers, settings) {
       previousLabel: bundle.weekly.previousLabel
     }
   };
+}
+
+/**
+月次集計の表示対象月を決める。
+取込直後に対象年月が当月へ進んでも、前月データのほうが多い間は直近完了月を月次の主対象にする。
+*/
+function resolveMonthlyTargetMonth_(rows, headerIndex, configuredMonth) {
+  const month = String(configuredMonth || '').trim();
+  if (!month) return '';
+
+  const currentCalendarMonth = Utilities.formatDate(new Date(), TS_CONFIG.TIMEZONE, 'yyyy-MM');
+  if (month !== currentCalendarMonth) {
+    return month;
+  }
+
+  const previousMonth = getPreviousMonthKey_(month);
+  if (!previousMonth) {
+    return month;
+  }
+
+  const currentMonthCount = countTargetRowsForMonth_(rows, headerIndex, month);
+  const previousMonthCount = countTargetRowsForMonth_(rows, headerIndex, previousMonth);
+
+  return previousMonthCount > currentMonthCount ? previousMonth : month;
+}
+
+/**
+指定月の集計対象行数を数える。
+*/
+function countTargetRowsForMonth_(rows, headerIndex, month) {
+  const targetMonth = String(month || '').trim();
+  if (!targetMonth) return 0;
+
+  return (rows || []).reduce((count, row) => {
+    const targetFlag = getValueByHeader_(row, headerIndex, '集計対象');
+    const isTarget = targetFlag === true || String(targetFlag).toUpperCase() === 'TRUE';
+    if (!isTarget) return count;
+
+    const rowMonth = String(getValueByHeader_(row, headerIndex, '対象年月') || '').trim();
+    return rowMonth === targetMonth ? count + 1 : count;
+  }, 0);
 }
 
 /**
