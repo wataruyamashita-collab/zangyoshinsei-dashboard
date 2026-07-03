@@ -3460,7 +3460,7 @@ function buildWeeklyExecutiveDraftWebhookMessage_(draftResult) {
   return [
     '【確認依頼】役員向け週次メールの下書きを作成しました。',
     targetWeek ? `対象週：${targetWeek}${weekRange ? '（' + weekRange + '）' : ''}` : '',
-    'Gmailの下書きフォルダで、宛先・本文・所感・閲覧用URLをご確認ください。',
+    'Gmailの下書きフォルダで、宛先・本文・閲覧用URLをご確認ください。',
     '確認後、必要に応じて文面を修正し、問題なければ送信してください。',
     draftResult && draftResult.message ? `下書き情報：${draftResult.message}` : ''
   ].filter(Boolean).join('\n');
@@ -3580,8 +3580,6 @@ function buildWeeklyExecutiveMailBody_(dashboardData) {
   const generatedAt = dashboardData.generatedAt || formatDateTimeForKey_(new Date());
   const weekLabel = weekly.label || settings.targetWeek || '';
   const weekRange = settings.weekStart && settings.weekEnd ? `${settings.weekStart}〜${settings.weekEnd}` : '';
-  const comments = buildWeeklyExecutiveMailComments_(staffPayload, salesPayload, settings.alertThreshold);
-
   return [
     '役員各位',
     '',
@@ -3595,87 +3593,11 @@ function buildWeeklyExecutiveMailBody_(dashboardData) {
     `・スタッフ部門：申請件数 ${formatNumberText_(staffCurrent.count)}件／定時前申請率 ${formatPercentText_(staffCurrent.beforeApplyRate)}／当日定時前承認率 ${formatPercentText_(staffCurrent.beforeApproveRate)}／未承認 ${formatNumberText_(staffCurrent.notApprovedCount)}件`,
     `・営業部門（参考）：申請件数 ${formatNumberText_(salesCurrent.count)}件／定時前申請率 ${formatPercentText_(salesCurrent.beforeApplyRate)}／当日定時前承認率 ${formatPercentText_(salesCurrent.beforeApproveRate)}／未承認 ${formatNumberText_(salesCurrent.notApprovedCount)}件`,
     '',
-    '■ 所感',
-    comments,
-    '',
     '詳細は以下の閲覧用ダッシュボードをご確認ください。',
     dashboardUrl || '閲覧用URLを取得できませんでした。管理者へご確認ください。',
     '',
     '以上、よろしくお願いいたします。'
   ].join('\n');
-}
-
-function buildWeeklyExecutiveMailComments_(staffPayload, salesPayload, threshold) {
-  const alertThreshold = parseRate_(threshold, 0.8);
-  const staffCurrent = (staffPayload && staffPayload.current) || {};
-  const salesCurrent = (salesPayload && salesPayload.current) || {};
-  const staffApproveRate = Number(staffCurrent.beforeApproveRate || 0);
-  const salesApproveRate = Number(salesCurrent.beforeApproveRate || 0);
-  const staffInsight = buildWeeklyExecutiveCategoryInsight_('スタッフ部門', staffPayload, alertThreshold);
-  const salesInsight = buildWeeklyExecutiveCategoryInsight_('営業部門（参考）', salesPayload, alertThreshold);
-  const overallComment = buildWeeklyExecutiveOverallComment_(staffApproveRate, salesApproveRate, alertThreshold);
-
-  return [
-    overallComment,
-    staffInsight,
-    salesInsight
-  ].join('\n');
-}
-
-function buildWeeklyExecutiveOverallComment_(staffApproveRate, salesApproveRate, alertThreshold) {
-  if (staffApproveRate >= alertThreshold && salesApproveRate >= alertThreshold) {
-    return '当日定時前承認率は、スタッフ部門・営業部門（参考）ともに基準値以上です。引き続き、事前申請・事前承認の運用状況を確認してまいります。';
-  }
-  if (staffApproveRate < alertThreshold && salesApproveRate < alertThreshold) {
-    return 'スタッフ部門・営業部門（参考）ともに、当日定時前承認率が基準値を下回っています。承認遅延の要因を確認し、事前承認の運用徹底に向けた対応状況を確認します。';
-  }
-  if (staffApproveRate < alertThreshold) {
-    return 'スタッフ部門で当日定時前承認率が基準値を下回っています。対象部署の状況を確認し、承認遅延の要因と改善対応を確認します。';
-  }
-  return '営業部門（参考）で当日定時前承認率が基準値を下回っています。対象拠点の状況を確認し、承認遅延の要因と改善対応を確認します。';
-}
-
-function buildWeeklyExecutiveCategoryInsight_(categoryName, categoryPayload, alertThreshold) {
-  const payload = categoryPayload || {};
-  const current = payload.current || {};
-  const previous = payload.previous || {};
-  const diff = payload.diff || {};
-  const currentApproveRate = Number(current.beforeApproveRate || 0);
-  const previousApproveRate = Number(previous.beforeApproveRate || 0);
-  const approveRateDiff = Number(diff.beforeApproveRate !== undefined ? diff.beforeApproveRate : currentApproveRate - previousApproveRate);
-  const countDiff = Number(diff.count || 0);
-  const notApprovedDiff = Number(diff.notApprovedCount || 0);
-  const approvalTrend = approveRateDiff > 0
-    ? `前週比で${formatPercentPointText_(approveRateDiff)}ポイント改善しています`
-    : approveRateDiff < 0
-      ? `前週比で${formatPercentPointText_(approveRateDiff)}ポイント低下しています`
-      : '前週比では横ばいです';
-  const applicationTrend = countDiff > 0
-    ? `申請件数は前週比で${formatAbsoluteNumberText_(countDiff)}件増加`
-    : countDiff < 0
-      ? `申請件数は前週比で${formatAbsoluteNumberText_(countDiff)}件減少`
-      : '申請件数は前週比で横ばい';
-  const notApprovedTrend = notApprovedDiff > 0
-    ? `未承認件数は前週比で${formatAbsoluteNumberText_(notApprovedDiff)}件増加しているため、優先的に確認します`
-    : notApprovedDiff < 0
-      ? `未承認件数は前週比で${formatAbsoluteNumberText_(notApprovedDiff)}件減少しており、改善傾向です`
-      : '未承認件数は前週比で横ばいです';
-  const rateAssessment = currentApproveRate >= alertThreshold
-    ? `当日定時前承認率は${formatPercentText_(currentApproveRate)}で、基準値を上回っています`
-    : `当日定時前承認率は${formatPercentText_(currentApproveRate)}で、基準値を下回っています`;
-
-  return `・${categoryName}：${rateAssessment}。当日定時前承認率は${approvalTrend}。${applicationTrend}、${notApprovedTrend}。`;
-}
-
-function formatAbsoluteNumberText_(value) {
-  const n = Number(value || 0);
-  return String(isNaN(n) ? 0 : Math.abs(n));
-}
-
-function formatPercentPointText_(rateDiff) {
-  const n = Number(rateDiff || 0);
-  const abs = Math.abs(isNaN(n) ? 0 : n) * 100;
-  return abs.toFixed(1);
 }
 
 function buildWeeklyExecutiveMailHtmlBody_(body) {
