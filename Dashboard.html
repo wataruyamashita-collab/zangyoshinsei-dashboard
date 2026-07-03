@@ -1006,10 +1006,10 @@
       const containerId = analysisId || (categoryName === '営業拠点' ? 'analysis-container-sales' : 'analysis-container-staff');
       const container = document.getElementById(containerId);
       const rows = data && Array.isArray(data.detailRows)
-        ? data.detailRows.filter(function(row) { return row && row.reason !== '問題なし'; })
+        ? data.detailRows.filter(function(row) { return !!row; })
         : [];
       const body = rows.length === 0
-        ? '<tr><td colspan="7">要確認明細はありません。</td></tr>'
+        ? '<tr><td colspan="7">週次詳細明細はありません。</td></tr>'
         : rows.map(function(row) {
           const klass = row.reason === '未承認' ? 'detail-unapproved' : (row.reason === '問題なし' ? '' : 'detail-warning');
           return '<tr class="' + klass + '">' +
@@ -1026,7 +1026,7 @@
       container.innerHTML = `
         <div class="table-head">
           <div class="table-title">${escapeHtml(deptName)} 週次詳細</div>
-          <div class="table-caption">要確認の対象者別明細のみを表示しています。</div>
+          <div class="table-caption">クリックした部署の対象者別明細を表示しています。</div>
         </div>
         <div class="analysis-text">${escapeHtml(data && data.analysisText ? data.analysisText : '')}</div>
         <div class="table-wrap">
