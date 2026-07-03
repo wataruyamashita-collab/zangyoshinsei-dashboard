@@ -3884,6 +3884,19 @@ function getHtmlDashboardDataCore_() {
   }
 
   const allSummaries = buildMonthlyWeeklySummaryBundle_(accumInfo.rows, accumInfo.headers, settings);
+  const weeklyStaff = buildDashboardCategoryPayload_(
+    allSummaries.weekly.current.deptRows,
+    allSummaries.weekly.previous.deptRows,
+    TS_CONFIG.STAFF_CATEGORY
+  );
+  const weeklySales = buildDashboardCategoryPayload_(
+    allSummaries.weekly.current.deptRows,
+    allSummaries.weekly.previous.deptRows,
+    TS_CONFIG.SALES_CATEGORY
+  );
+
+  addWeeklyAnalysisPayload_(weeklyStaff, accumInfo.rows, accumInfo.headers, allSummaries.weekly.currentLabel, allSummaries.weekly.previousLabel);
+  addWeeklyAnalysisPayload_(weeklySales, accumInfo.rows, accumInfo.headers, allSummaries.weekly.currentLabel, allSummaries.weekly.previousLabel);
 
   return {
     ok: true,
@@ -3908,21 +3921,65 @@ function getHtmlDashboardDataCore_() {
     weekly: {
       label: allSummaries.weekly.currentLabel,
       previousLabel: allSummaries.weekly.previousLabel,
-      staff: buildDashboardCategoryPayload_(
-        allSummaries.weekly.current.deptRows,
-        allSummaries.weekly.previous.deptRows,
-        TS_CONFIG.STAFF_CATEGORY
-      ),
-      sales: buildDashboardCategoryPayload_(
-        allSummaries.weekly.current.deptRows,
-        allSummaries.weekly.previous.deptRows,
-        TS_CONFIG.SALES_CATEGORY
-      )
+      staff: weeklyStaff,
+      sales: weeklySales
     }
   };
 }
 
 
+
+
+/**
+週次ダッシュボードに常時表示する部署別詳細を付与する。
+*/
+function addWeeklyAnalysisPayload_(categoryPayload, records, headers, currentWeekLabel, previousWeekLabel) {
+  if (!categoryPayload) return categoryPayload;
+
+  categoryPayload.weeklyAnalysis = buildWeeklyAnalysisMapForDetails_(
+    categoryPayload.details,
+    records,
+    headers,
+    currentWeekLabel
+  );
+  categoryPayload.previousWeeklyAnalysis = buildWeeklyAnalysisMapForDetails_(
+    categoryPayload.previousDetails,
+    records,
+    headers,
+    previousWeekLabel
+  );
+
+  return categoryPayload;
+}
+
+function buildWeeklyAnalysisMapForDetails_(details, records, headers, weekLabel) {
+  const result = {};
+  (details || []).forEach(detail => {
+    const deptName = detail && detail.deptName ? detail.deptName : '';
+    if (!deptName) return;
+
+    const summaryRow = [
+      deptName,
+      detail.category || '',
+      detail.count || 0,
+      Math.round(Number(detail.beforeApplyRate || 0) * Number(detail.count || 0)),
+      Math.round(Number(detail.beforeApproveRate || 0) * Number(detail.count || 0)),
+      0,
+      Math.max(Number(detail.count || 0) - Number(detail.notApprovedCount || 0), 0),
+      detail.beforeApplyRate || 0,
+      detail.beforeApproveRate || 0,
+      detail.nextDayApproveRate || 0,
+      detail.notApprovedCount || 0,
+      detail.alert || ''
+    ];
+
+    result[deptName] = {
+      analysisText: buildDeptWeeklyAnalysisText_(summaryRow, weekLabel),
+      detailRows: buildDeptWeeklyDetailRows_(records, deptName, weekLabel, headers)
+    };
+  });
+  return result;
+}
 
 /**
 HTMLダッシュボードの部署別週次分析データを返す。
