@@ -1229,6 +1229,7 @@ function detectTargetPeriods_(rows, headerMap) {
   const idxTargetCode = headerMap[normalizeHeader_('残業申請:申請対象社員コード')];
   const idxApplyDateTime = headerMap[normalizeHeader_('残業申請:申請日時')];
   const idxStatus = headerMap[normalizeHeader_('残業申請:ステータス')];
+  const targetMonth = detectTargetMonth_(rows, headerMap);
   let latestDate = null;
   let latestPastOrTodayDate = null;
   const today = new Date();
@@ -1246,7 +1247,7 @@ function detectTargetPeriods_(rows, headerMap) {
   if (!targetDate) return { targetMonth: '', targetWeek: '', weekStart: null, weekEnd: null };
   const week = getWeekInfo_(targetDate);
   return {
-    targetMonth: Utilities.formatDate(targetDate, TS_CONFIG.TIMEZONE, 'yyyy-MM'),
+    targetMonth: targetMonth || Utilities.formatDate(targetDate, TS_CONFIG.TIMEZONE, 'yyyy-MM'),
     targetWeek: week.weekKey,
     weekStart: week.weekStart,
     weekEnd: week.weekEnd
