@@ -447,10 +447,25 @@
       padding: 12px;
     }
 
+    .analysis-panel[hidden] {
+      display: none !important;
+    }
+
     .analysis-text {
       white-space: pre-wrap;
       line-height: 1.7;
       margin-bottom: 12px;
+    }
+
+    .weekly-analysis-block {
+      border-top: 1px solid var(--line-soft);
+      padding-top: 12px;
+      margin-top: 12px;
+    }
+
+    .weekly-analysis-block:first-of-type {
+      border-top: none;
+      padding-top: 0;
     }
 
     .detail-analysis-table th,
@@ -685,7 +700,9 @@
           notApprovedCount: 0
         }, category && category.diff ? category.diff : {}),
         details: Array.isArray(category && category.details) ? category.details : [],
-        previousDetails: Array.isArray(category && category.previousDetails) ? category.previousDetails : []
+        previousDetails: Array.isArray(category && category.previousDetails) ? category.previousDetails : [],
+        weeklyAnalysis: category && category.weeklyAnalysis ? category.weeklyAnalysis : {},
+        previousWeeklyAnalysis: category && category.previousWeeklyAnalysis ? category.previousWeeklyAnalysis : {}
       };
     }
 
@@ -840,7 +857,8 @@
           nextDayApproveRate: -Number(category.diff.nextDayApproveRate || 0),
           notApprovedCount: -Number(category.diff.notApprovedCount || 0)
         },
-        details: previousDetails
+        details: previousDetails,
+        weeklyAnalysis: category.previousWeeklyAnalysis || {}
       };
     }
 
@@ -857,7 +875,7 @@
           ${renderKpis(props.category, props.compareLabel)}
           ${renderAttention(props.category, props.title)}
           ${renderDetailTable(props.category, props.title + ' 部署別明細', props.compareLabel, props.title, props.label, isWeekly, props.analysisId)}
-          ${isWeekly ? '<div id="' + escapeHtml(props.analysisId || 'analysis-container') + '" class="analysis-panel" style="display:none;"></div>' : ''}
+          ${isWeekly ? '<div id="' + escapeHtml(props.analysisId || 'analysis-container') + '" class="analysis-panel" hidden></div>' : ''}
         </div>
       `;
     }
@@ -1027,10 +1045,10 @@
       const containerId = analysisId || (categoryName === '営業拠点' ? 'analysis-container-sales' : 'analysis-container-staff');
       const container = document.getElementById(containerId);
       const rows = data && Array.isArray(data.detailRows)
-        ? data.detailRows.filter(function(row) { return row && row.reason !== '問題なし'; })
+        ? data.detailRows.filter(function(row) { return !!row; })
         : [];
       const body = rows.length === 0
-        ? '<tr><td colspan="7">要確認明細はありません。</td></tr>'
+        ? '<tr><td colspan="7">週次詳細明細はありません。</td></tr>'
         : rows.map(function(row) {
           const klass = row.reason === '未承認' ? 'detail-unapproved' : (row.reason === '問題なし' ? '' : 'detail-warning');
           return '<tr class="' + klass + '">' +
