@@ -958,7 +958,7 @@
             <td>${renderRateCell(row.nextDayApproveRate, row.nextDayApproveRateDiff, compareLabel)}</td>
             <td>${renderLowerGoodCountCell(row.notApprovedCount, row.notApprovedCountDiff, compareLabel)}</td>
             <td>${row.alert ? '<span class="alert">' + escapeHtml(row.alert) + '</span>' : '<span class="ok">基準内</span>'}</td>
-            <td>${isWeekly ? '<span class="analysis-link-cell">下部に常時表示</span>' : '—'}</td>
+            <td>${isWeekly ? '<span class="analysis-link-cell">詳細表示</span>' : '—'}</td>
           </tr>
         `;
         }).join('');
@@ -1075,6 +1075,7 @@
       const container = document.getElementById(containerId);
       if (!container) return;
       container.hidden = false;
+      container.style.display = 'block';
       container.innerHTML = '<div class="analysis-text">詳細情報を取得しています。</div>';
 
       google.script.run
