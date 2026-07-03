@@ -431,6 +431,14 @@
       text-underline-offset: 2px;
     }
 
+    .analysis-link-button {
+      border: 0;
+      background: transparent;
+      cursor: pointer;
+      padding: 0;
+      font: inherit;
+    }
+
     .analysis-panel {
       border: 1px solid #d7e5f5;
       border-radius: 12px;
@@ -947,7 +955,9 @@
         ? `<tr><td colspan="8">該当データはありません。</td></tr>`
         : rows.map(row => {
           const isWeekly = !!isWeeklyPeriod;
-          const rowAttrs = '';
+          const rowAttrs = isWeekly
+            ? ` class="clickable-analysis-row" tabindex="0" title="選択すると詳細を確認できます。" data-analysis-dept="${escapeHtml(row.deptName)}" data-analysis-period="${escapeHtml(periodLabel || '')}" data-analysis-category="${escapeHtml((category && category.category) || '')}" data-analysis-id="${escapeHtml(analysisId || '')}"`
+            : '';
 
           return `
           <tr${rowAttrs}>
@@ -958,7 +968,7 @@
             <td>${renderRateCell(row.nextDayApproveRate, row.nextDayApproveRateDiff, compareLabel)}</td>
             <td>${renderLowerGoodCountCell(row.notApprovedCount, row.notApprovedCountDiff, compareLabel)}</td>
             <td>${row.alert ? '<span class="alert">' + escapeHtml(row.alert) + '</span>' : '<span class="ok">基準内</span>'}</td>
-            <td>${isWeekly ? '<span class="analysis-link-cell">詳細表示</span>' : '—'}</td>
+            <td>${isWeekly ? '<button type="button" class="analysis-link-cell analysis-link-button" aria-label="' + escapeHtml(row.deptName) + 'の週次詳細を表示">詳細表示</button>' : '—'}</td>
           </tr>
         `;
         }).join('');
@@ -991,83 +1001,26 @@
     }
 
 
+    document.addEventListener('click', function(event) {
+      const row = event.target.closest('.clickable-analysis-row');
+      if (!row) return;
+      loadDeptWeeklyAnalysisFromRow(row);
+    });
 
-    function renderWeeklyAnalysisPanel(category, title) {
-      const rows = category.details || [];
-      const analysisMap = category.weeklyAnalysis || {};
+    document.addEventListener('keydown', function(event) {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      if (!event.target.classList || !event.target.classList.contains('clickable-analysis-row')) return;
+      event.preventDefault();
+      loadDeptWeeklyAnalysisFromRow(event.target);
+    });
 
-      if (rows.length === 0) {
-        return `
-          <div class="analysis-panel">
-            <div class="table-head">
-              <div class="table-title">${escapeHtml(title)}</div>
-              <div class="table-caption">対象者別明細を常時表示します。</div>
-            </div>
-            <div class="analysis-text">該当データはありません。</div>
-          </div>
-        `;
-      }
-
-      return `
-        <div class="analysis-panel">
-          <div class="table-head">
-            <div class="table-title">${escapeHtml(title)}</div>
-            <div class="table-caption">各部署の対象者別明細を常時表示しています。</div>
-          </div>
-          ${rows.map(function(row) {
-            const analysis = analysisMap[row.deptName] || { analysisText: '', detailRows: [] };
-            return renderDeptWeeklyAnalysisBlock(row.deptName, analysis);
-          }).join('')}
-        </div>
-      `;
-    }
-
-    function renderDeptWeeklyAnalysisBlock(deptName, data) {
-      const detailRows = data && Array.isArray(data.detailRows) ? data.detailRows : [];
-      const body = detailRows.length === 0
-        ? '<tr><td colspan="7">明細はありません。</td></tr>'
-        : detailRows.map(function(row) {
-          const klass = row.reason === '未承認' ? 'detail-unapproved' : (row.reason === '問題なし' ? '' : 'detail-warning');
-          return '<tr class="' + klass + '">' +
-            '<td class="detail-date-cell">' + escapeHtml(row.targetDate) + '</td>' +
-            '<td class="detail-text-cell">' + escapeHtml(row.empName) + '</td>' +
-            '<td class="detail-datetime-cell">' + escapeHtml(row.applyDateTime) + '</td>' +
-            '<td class="detail-datetime-cell">' + escapeHtml(row.approveDateTime) + '</td>' +
-            '<td>' + escapeHtml(row.beforeApplyJudge) + '</td>' +
-            '<td>' + escapeHtml(row.beforeApproveJudge) + '</td>' +
-            '<td>' + escapeHtml(row.reason) + '</td>' +
-          '</tr>';
-        }).join('');
-
-      return `
-        <div class="weekly-analysis-block">
-          <div class="table-title">${escapeHtml(deptName)} 週次詳細</div>
-          <div class="analysis-text">${escapeHtml(data && data.analysisText ? data.analysisText : '')}</div>
-          <div class="table-wrap">
-            <table class="detail-analysis-table">
-              <thead>
-                <tr>
-                  <th class="detail-date-cell">対象日</th>
-                  <th class="detail-text-cell">対象者</th>
-                  <th class="detail-datetime-cell">申請日時</th>
-                  <th class="detail-datetime-cell">承認日時</th>
-                  <th>定時前申請</th>
-                  <th>当日定時前承認</th>
-                  <th>判定理由</th>
-                </tr>
-              </thead>
-              <tbody>${body}</tbody>
-            </table>
-          </div>
-        </div>
-      `;
-    }
-
-    function handleAnalysisRowKeydown(event, deptName, periodLabel, categoryName, analysisId) {
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault();
-        loadDeptWeeklyAnalysis(deptName, periodLabel, categoryName, analysisId);
-      }
+    function loadDeptWeeklyAnalysisFromRow(row) {
+      loadDeptWeeklyAnalysis(
+        row.dataset.analysisDept || '',
+        row.dataset.analysisPeriod || '',
+        row.dataset.analysisCategory || '',
+        row.dataset.analysisId || ''
+      );
     }
 
     function loadDeptWeeklyAnalysis(deptName, periodLabel, categoryName, analysisId) {
@@ -1210,17 +1163,6 @@
       const n = Number(value || 0);
       const sign = n > 0 ? '+' : '';
       return sign + n.toLocaleString('ja-JP');
-    }
-
-    function escapeJs(value) {
-      return String(value == null ? '' : value)
-        .replace(/\\/g, '\\\\')
-        .replace(/\r/g, '\\r')
-        .replace(/\n/g, '\\n')
-        .replace(/'/g, "\\&#39;")
-        .replace(/"/g, '&quot;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
     }
 
     function escapeHtml(value) {
