@@ -380,8 +380,8 @@ function rebuildMonthlyAndWeeklyFromAccum() {
 
     appendImportLog_({
       importType: '月次・週次再集計',
-      targetMonth: settings.targetMonth,
-      targetWeek: settings.targetWeek,
+      targetMonth: summaries.monthly.currentLabel,
+      targetWeek: summaries.weekly.currentLabel,
       fileName: '取込データ_残業申請',
       importMethod: '取込データ再集計',
       importCount: summaries.monthly.current.totalImportCount,
@@ -391,8 +391,8 @@ function rebuildMonthlyAndWeeklyFromAccum() {
 
     SpreadsheetApp.getUi().alert(
       '月次・週次の再集計が完了しました。\n\n' +
-      `対象年月：${settings.targetMonth}\n` +
-      `対象週：${settings.targetWeek}\n` +
+      `対象年月：${summaries.monthly.currentLabel}\n` +
+      `対象週：${summaries.weekly.currentLabel}\n` +
       `月次対象件数：${summaries.monthly.current.totalImportCount}件\n` +
       `週次対象件数：${summaries.weekly.current.totalImportCount}件`
     );
