@@ -3942,7 +3942,8 @@ function getDeptWeeklyAnalysisData(deptName, weekStartDate, periodLabel) {
   const canonicalDeptName = getCanonicalDeptName_(deptName, deptMaster);
   const summaryRow = (summaries.deptRows || []).find(row => getCanonicalDeptName_(row[0], deptMaster) === canonicalDeptName) ||
     emptyDeptSummaryRow_(canonicalDeptName, '');
-  const detailRows = buildDeptWeeklyDetailRows_(accumInfo.rows, canonicalDeptName, weekStart || targetWeekKey, accumInfo.headers);
+  const detailRows = buildDeptWeeklyDetailRows_(accumInfo.rows, canonicalDeptName, weekStart || targetWeekKey, accumInfo.headers)
+    .filter(row => row && String(row.reason || '').trim() !== '問題なし');
 
   return JSON.stringify({
     analysisText: buildDeptWeeklyAnalysisText_(summaryRow, periodLabel || targetWeekKey),
