@@ -439,6 +439,10 @@
       padding: 12px;
     }
 
+    .analysis-panel[hidden] {
+      display: none !important;
+    }
+
     .analysis-text {
       white-space: pre-wrap;
       line-height: 1.7;
@@ -863,7 +867,7 @@
           ${renderKpis(props.category, props.compareLabel)}
           ${renderAttention(props.category, props.title)}
           ${renderDetailTable(props.category, props.title + ' 部署別明細', props.compareLabel, props.title, props.label, isWeekly, props.analysisId)}
-          ${isWeekly ? renderWeeklyAnalysisPanel(props.category, props.title + ' 部署別詳細') : ''}
+          ${isWeekly ? '<div id="' + escapeHtml(props.analysisId || 'analysis-container') + '" class="analysis-panel" hidden></div>' : ''}
         </div>
       `;
     }
@@ -1070,7 +1074,7 @@
       const containerId = analysisId || (categoryName === '営業拠点' ? 'analysis-container-sales' : 'analysis-container-staff');
       const container = document.getElementById(containerId);
       if (!container) return;
-      container.style.display = 'block';
+      container.hidden = false;
       container.innerHTML = '<div class="analysis-text">詳細情報を取得しています。</div>';
 
       google.script.run
@@ -1107,7 +1111,7 @@
       container.innerHTML = `
         <div class="table-head">
           <div class="table-title">${escapeHtml(deptName)} 週次詳細</div>
-          <div class="table-caption">クリックした部署の対象者別明細を表示しています。</div>
+          <div class="table-caption">クリックした部署の要確認明細を表示しています。</div>
         </div>
         <div class="analysis-text">${escapeHtml(data && data.analysisText ? data.analysisText : '')}</div>
         <div class="table-wrap">
