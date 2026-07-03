@@ -439,10 +439,25 @@
       padding: 12px;
     }
 
+    .analysis-panel[hidden] {
+      display: none !important;
+    }
+
     .analysis-text {
       white-space: pre-wrap;
       line-height: 1.7;
       margin-bottom: 12px;
+    }
+
+    .weekly-analysis-block {
+      border-top: 1px solid var(--line-soft);
+      padding-top: 12px;
+      margin-top: 12px;
+    }
+
+    .weekly-analysis-block:first-of-type {
+      border-top: none;
+      padding-top: 0;
     }
 
     .detail-analysis-table th,
@@ -677,7 +692,9 @@
           notApprovedCount: 0
         }, category && category.diff ? category.diff : {}),
         details: Array.isArray(category && category.details) ? category.details : [],
-        previousDetails: Array.isArray(category && category.previousDetails) ? category.previousDetails : []
+        previousDetails: Array.isArray(category && category.previousDetails) ? category.previousDetails : [],
+        weeklyAnalysis: category && category.weeklyAnalysis ? category.weeklyAnalysis : {},
+        previousWeeklyAnalysis: category && category.previousWeeklyAnalysis ? category.previousWeeklyAnalysis : {}
       };
     }
 
@@ -832,7 +849,8 @@
           nextDayApproveRate: -Number(category.diff.nextDayApproveRate || 0),
           notApprovedCount: -Number(category.diff.notApprovedCount || 0)
         },
-        details: previousDetails
+        details: previousDetails,
+        weeklyAnalysis: category.previousWeeklyAnalysis || {}
       };
     }
 
@@ -849,7 +867,7 @@
           ${renderKpis(props.category, props.compareLabel)}
           ${renderAttention(props.category, props.title)}
           ${renderDetailTable(props.category, props.title + ' 部署別明細', props.compareLabel, props.title, props.label, isWeekly, props.analysisId)}
-          ${isWeekly ? '<div id="' + escapeHtml(props.analysisId || 'analysis-container') + '" class="analysis-panel" style="display:none;"></div>' : ''}
+          ${isWeekly ? '<div id="' + escapeHtml(props.analysisId || 'analysis-container') + '" class="analysis-panel" hidden></div>' : ''}
         </div>
       `;
     }
@@ -929,12 +947,7 @@
         ? `<tr><td colspan="8">該当データはありません。</td></tr>`
         : rows.map(row => {
           const isWeekly = !!isWeeklyPeriod;
-          const analysisArgs = isWeekly
-            ? `'${escapeJs(row.deptName)}', '${escapeJs(periodLabel || '')}', '${escapeJs((category && category.category) || '')}', '${escapeJs(analysisId || '')}'`
-            : '';
-          const rowAttrs = isWeekly
-            ? ` class="clickable-analysis-row" tabindex="0" title="選択すると詳細を確認できます。" onclick="loadDeptWeeklyAnalysis(${analysisArgs})" onkeydown="handleAnalysisRowKeydown(event, ${analysisArgs})"`
-            : '';
+          const rowAttrs = '';
 
           return `
           <tr${rowAttrs}>
@@ -978,6 +991,78 @@
     }
 
 
+
+    function renderWeeklyAnalysisPanel(category, title) {
+      const rows = category.details || [];
+      const analysisMap = category.weeklyAnalysis || {};
+
+      if (rows.length === 0) {
+        return `
+          <div class="analysis-panel">
+            <div class="table-head">
+              <div class="table-title">${escapeHtml(title)}</div>
+              <div class="table-caption">対象者別明細を常時表示します。</div>
+            </div>
+            <div class="analysis-text">該当データはありません。</div>
+          </div>
+        `;
+      }
+
+      return `
+        <div class="analysis-panel">
+          <div class="table-head">
+            <div class="table-title">${escapeHtml(title)}</div>
+            <div class="table-caption">各部署の対象者別明細を常時表示しています。</div>
+          </div>
+          ${rows.map(function(row) {
+            const analysis = analysisMap[row.deptName] || { analysisText: '', detailRows: [] };
+            return renderDeptWeeklyAnalysisBlock(row.deptName, analysis);
+          }).join('')}
+        </div>
+      `;
+    }
+
+    function renderDeptWeeklyAnalysisBlock(deptName, data) {
+      const detailRows = data && Array.isArray(data.detailRows) ? data.detailRows : [];
+      const body = detailRows.length === 0
+        ? '<tr><td colspan="7">明細はありません。</td></tr>'
+        : detailRows.map(function(row) {
+          const klass = row.reason === '未承認' ? 'detail-unapproved' : (row.reason === '問題なし' ? '' : 'detail-warning');
+          return '<tr class="' + klass + '">' +
+            '<td class="detail-date-cell">' + escapeHtml(row.targetDate) + '</td>' +
+            '<td class="detail-text-cell">' + escapeHtml(row.empName) + '</td>' +
+            '<td class="detail-datetime-cell">' + escapeHtml(row.applyDateTime) + '</td>' +
+            '<td class="detail-datetime-cell">' + escapeHtml(row.approveDateTime) + '</td>' +
+            '<td>' + escapeHtml(row.beforeApplyJudge) + '</td>' +
+            '<td>' + escapeHtml(row.beforeApproveJudge) + '</td>' +
+            '<td>' + escapeHtml(row.reason) + '</td>' +
+          '</tr>';
+        }).join('');
+
+      return `
+        <div class="weekly-analysis-block">
+          <div class="table-title">${escapeHtml(deptName)} 週次詳細</div>
+          <div class="analysis-text">${escapeHtml(data && data.analysisText ? data.analysisText : '')}</div>
+          <div class="table-wrap">
+            <table class="detail-analysis-table">
+              <thead>
+                <tr>
+                  <th class="detail-date-cell">対象日</th>
+                  <th class="detail-text-cell">対象者</th>
+                  <th class="detail-datetime-cell">申請日時</th>
+                  <th class="detail-datetime-cell">承認日時</th>
+                  <th>定時前申請</th>
+                  <th>当日定時前承認</th>
+                  <th>判定理由</th>
+                </tr>
+              </thead>
+              <tbody>${body}</tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+
     function handleAnalysisRowKeydown(event, deptName, periodLabel, categoryName, analysisId) {
       if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault();
@@ -1007,10 +1092,10 @@
       const containerId = analysisId || (categoryName === '営業拠点' ? 'analysis-container-sales' : 'analysis-container-staff');
       const container = document.getElementById(containerId);
       const rows = data && Array.isArray(data.detailRows)
-        ? data.detailRows.filter(function(row) { return row && row.reason !== '問題なし'; })
+        ? data.detailRows.filter(function(row) { return !!row; })
         : [];
       const body = rows.length === 0
-        ? '<tr><td colspan="7">要確認明細はありません。</td></tr>'
+        ? '<tr><td colspan="7">週次詳細明細はありません。</td></tr>'
         : rows.map(function(row) {
           const klass = row.reason === '未承認' ? 'detail-unapproved' : (row.reason === '問題なし' ? '' : 'detail-warning');
           return '<tr class="' + klass + '">' +
