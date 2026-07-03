@@ -1270,6 +1270,7 @@ function buildMonthlyWeeklySummaryBundle_(rows, headers, settings) {
     targetFlag: findHeaderIndex_(headerIndex, '集計対象'),
     targetMonth: findHeaderIndex_(headerIndex, '対象年月'),
     targetWeek: findHeaderIndex_(headerIndex, '対象週'),
+    date: findHeaderIndex_(headerIndex, '日付'),
     deptName: findHeaderIndex_(headerIndex, '部署名'),
     category: findHeaderIndex_(headerIndex, '部門区分'),
     employeeCode: findHeaderIndex_(headerIndex, '残業申請:申請対象社員コード'),
@@ -1304,7 +1305,7 @@ function buildMonthlyWeeklySummaryBundle_(rows, headers, settings) {
       return;
     }
 
-    const rowMonth = String(row[indexes.targetMonth] || '').trim();
+    const rowMonth = getSummaryRowMonth_(row, indexes);
     const rowWeek = String(row[indexes.targetWeek] || '').trim();
 
     if (
@@ -1401,9 +1402,32 @@ function countTargetRowsForMonth_(rows, headerIndex, month) {
     const isTarget = targetFlag === true || String(targetFlag).toUpperCase() === 'TRUE';
     if (!isTarget) return count;
 
-    const rowMonth = String(getValueByHeader_(row, headerIndex, '対象年月') || '').trim();
+    const rowMonth = getRowMonthByHeader_(row, headerIndex);
     return rowMonth === targetMonth ? count + 1 : count;
   }, 0);
+}
+
+/**
+月次集計用の対象年月を行から取得する。
+既存の取込データで補助列「対象年月」が空の場合でも、原本列「日付」から補完する。
+*/
+function getSummaryRowMonth_(row, indexes) {
+  const rowMonth = formatMonthKeyForDisplay_(row[indexes.targetMonth]);
+  if (rowMonth) return rowMonth;
+
+  const targetDate = parseDate_(row[indexes.date]);
+  return targetDate ? Utilities.formatDate(targetDate, TS_CONFIG.TIMEZONE, 'yyyy-MM') : '';
+}
+
+/**
+ヘッダーインデックス経由で月次集計用の対象年月を取得する。
+*/
+function getRowMonthByHeader_(row, headerIndex) {
+  const rowMonth = formatMonthKeyForDisplay_(getValueByHeader_(row, headerIndex, '対象年月'));
+  if (rowMonth) return rowMonth;
+
+  const targetDate = parseDate_(getValueByHeader_(row, headerIndex, '日付'));
+  return targetDate ? Utilities.formatDate(targetDate, TS_CONFIG.TIMEZONE, 'yyyy-MM') : '';
 }
 
 /**
