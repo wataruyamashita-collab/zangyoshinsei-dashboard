@@ -700,9 +700,7 @@
           notApprovedCount: 0
         }, category && category.diff ? category.diff : {}),
         details: Array.isArray(category && category.details) ? category.details : [],
-        previousDetails: Array.isArray(category && category.previousDetails) ? category.previousDetails : [],
-        weeklyAnalysis: category && category.weeklyAnalysis ? category.weeklyAnalysis : {},
-        previousWeeklyAnalysis: category && category.previousWeeklyAnalysis ? category.previousWeeklyAnalysis : {}
+        previousDetails: Array.isArray(category && category.previousDetails) ? category.previousDetails : []
       };
     }
 
@@ -857,8 +855,7 @@
           nextDayApproveRate: -Number(category.diff.nextDayApproveRate || 0),
           notApprovedCount: -Number(category.diff.notApprovedCount || 0)
         },
-        details: previousDetails,
-        weeklyAnalysis: category.previousWeeklyAnalysis || {}
+        details: previousDetails
       };
     }
 
