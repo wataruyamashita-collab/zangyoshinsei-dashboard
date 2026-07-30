@@ -3077,7 +3077,8 @@ function showViewerDashboardUrl() {
   ui.alert(
     '閲覧用ダッシュボードURL',
     url + '\n\n' +
-      '※ bl.tjk.co.jpの利用者に共有する場合は、正しいGoogle Workspaceアカウントが選択される「script.google.com/a/macros/bl.tjk.co.jp/」形式のURLを使用してください。',
+      '※ Google Workspaceのドメイン限定Webアプリでは、表示されたドメイン付きURLをそのまま使用してください。' +
+      '\n閲覧者はアクセスを許可されたGoogleアカウントでログインする必要があります。',
     ui.ButtonSet.OK
   );
 }
