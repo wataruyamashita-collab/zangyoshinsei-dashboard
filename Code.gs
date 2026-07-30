@@ -556,7 +556,7 @@ function ensureDefaultSettings_() {
     ['集計シート更新', true, 'TRUEならCSV取込・再集計時に集計_* シートへ書き出します。HTMLダッシュボードだけで運用する場合はFALSEで高速化できます。'],
     ['シート版ダッシュボード更新', false, 'TRUEならダッシュボード_* シートへも書き出します。通常はHTMLダッシュボードを使うためFALSE推奨です。'],
     ['閲覧用URLトークン', '', 'Webアプリの閲覧用URLを制限する任意トークン。空欄ならデプロイ設定の権限のみで制御します。'],
-    ['閲覧用URL（手動設定）', 'https://script.google.com/macros/s/AKfycbxKbCBRDF-FdgbVQztHXRJNp1gMjJW7W65LSVG3khah6-hwhcp5WihfTktFOQCOQA3FUw/exec?mode=viewer', '閲覧できることを確認済みのWebアプリURL。空欄ならApps ScriptのデプロイURLから自動取得します。'],
+    ['閲覧用URL（手動設定）', 'https://script.google.com/a/macros/bl.tjk.co.jp/s/AKfycbw82l_hXbw0iXF12GXrXlsEiTKzBbqBEgsdfylcVv9NCoklpuEGZGhMwIS_Z8xB_-C9Cg/exec?mode=viewer', 'bl.tjk.co.jpの利用者が閲覧できることを確認済みのWebアプリURL。空欄ならApps ScriptのデプロイURLから自動取得します。'],
     ['Gmail取込検索条件', DEFAULT_GMAIL_IMPORT_QUERY, 'TeamSpiritから配信されるGmail添付CSV自動取込で使用する検索条件。Gmail検索はCSV添付に広げ、コード側で件名「レポート結果」「申請確認日次勤怠データ」「タジマ」を確認します。'],
     ['Gmail取込文字コード', 'UTF-8', 'Gmail添付CSVの文字コード。UTF-8またはShift_JIS / CP932を指定します。'],
     ['Gmailメール取込結果', '', 'Gmailメール取込の直近判定。手動取込成功／自動取込成功／取込対象なし／取込失敗'],
@@ -2508,7 +2508,7 @@ function getSettings_() {
     updateSummarySheets: true,
     updateSheetDashboards: false,
     viewerUrlToken: '',
-    viewerDashboardUrlOverride: 'https://script.google.com/macros/s/AKfycbxKbCBRDF-FdgbVQztHXRJNp1gMjJW7W65LSVG3khah6-hwhcp5WihfTktFOQCOQA3FUw/exec?mode=viewer',
+    viewerDashboardUrlOverride: 'https://script.google.com/a/macros/bl.tjk.co.jp/s/AKfycbw82l_hXbw0iXF12GXrXlsEiTKzBbqBEgsdfylcVv9NCoklpuEGZGhMwIS_Z8xB_-C9Cg/exec?mode=viewer',
     gmailImportQuery: DEFAULT_GMAIL_IMPORT_QUERY,
     gmailImportEncoding: 'UTF-8',
     gmailMailImportResult: '',
@@ -3069,8 +3069,7 @@ function showViewerDashboardUrl() {
   ui.alert(
     '閲覧用ダッシュボードURL',
     url + '\n\n' +
-      '※ コピーしたURLに「script.google.com/a/...」形式のドメイン付きURLが含まれる場合、Googleドライブの「ファイルを開けません」画面に遷移することがあります。' +
-      '\n上記の「script.google.com/macros/s/」形式のURLを使用してください。',
+      '※ bl.tjk.co.jpの利用者に共有する場合は、正しいGoogle Workspaceアカウントが選択される「script.google.com/a/macros/bl.tjk.co.jp/」形式のURLを使用してください。',
     ui.ButtonSet.OK
   );
 }
@@ -3078,10 +3077,10 @@ function showViewerDashboardUrl() {
 function getViewerDashboardUrl_() {
   const settings = getSettings_();
   const token = settings.viewerUrlToken;
-  const manualUrl = normalizeAppsScriptWebAppUrl_(settings.viewerDashboardUrlOverride);
+  const manualUrl = String(settings.viewerDashboardUrlOverride || '').trim();
   if (manualUrl) return buildViewerDashboardUrl_(manualUrl, token);
 
-  const baseUrl = normalizeAppsScriptWebAppUrl_(ScriptApp.getService().getUrl());
+  const baseUrl = String(ScriptApp.getService().getUrl() || '').trim();
   if (!baseUrl) return '';
   return buildViewerDashboardUrl_(baseUrl, token);
 }
@@ -3108,47 +3107,6 @@ function buildViewerDashboardUrl_(url, token) {
 
   return `${path}?${params.join('&')}${hash}`;
 }
-
-/**
-Apps Scriptがドメイン付きURL（/a/example.com/macros/s/... または
-/a/macros/example.com/s/...）を返す環境では、そのURLをコピーして開くと
-Googleドライブの「ファイルを開けません」画面へ遷移する場合がある。
-Webアプリとして安定して開ける標準URLへ正規化する。
-*/
-function normalizeAppsScriptWebAppUrl_(url) {
-  const value = String(url || '').trim();
-  if (!value) return '';
-  return value
-    .replace(
-      /^https:\/\/script\.google\.com\/a\/[^/]+\/macros\/s\//,
-      'https://script.google.com/macros/s/'
-    )
-    .replace(
-      /^https:\/\/script\.google\.com\/a\/macros\/[^/]+\/s\//,
-      'https://script.google.com/macros/s/'
-    );
-}
-
-/**
-Apps Scriptがドメイン付きURL（/a/example.com/macros/s/... または
-/a/macros/example.com/s/...）を返す環境では、そのURLをコピーして開くと
-Googleドライブの「ファイルを開けません」画面へ遷移する場合がある。
-Webアプリとして安定して開ける標準URLへ正規化する。
-*/
-function normalizeAppsScriptWebAppUrl_(url) {
-  const value = String(url || '').trim();
-  if (!value) return '';
-  return value
-    .replace(
-      /^https:\/\/script\.google\.com\/a\/[^/]+\/macros\/s\//,
-      'https://script.google.com/macros/s/'
-    )
-    .replace(
-      /^https:\/\/script\.google\.com\/a\/macros\/[^/]+\/s\//,
-      'https://script.google.com/macros/s/'
-    );
-}
-
 
 function runGmailCsvImportFromMenu() {
   const ui = SpreadsheetApp.getUi();
