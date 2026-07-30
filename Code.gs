@@ -1258,7 +1258,8 @@ function detectTargetPeriods_(rows, headerMap) {
 月次・週次サマリーをまとめて作成
 1回の走査で、当月・前月・当週・前週を同時に集計する。
 */
-function buildMonthlyWeeklySummaryBundle_(rows, headers, settings) {
+function buildMonthlyWeeklySummaryBundle_(rows, headers, settings, options) {
+  const deptOnly = !!(options && options.deptOnly);
   const headerIndex = buildHeaderIndex_(headers);
   const currentMonth = resolveMonthlyTargetMonth_(rows, headerIndex, String(settings.targetMonth || '').trim());
   const previousMonth = getPreviousMonthKey_(currentMonth);
@@ -1284,14 +1285,14 @@ function buildMonthlyWeeklySummaryBundle_(rows, headers, settings) {
 
   const bundle = {
     monthly: {
-      current: createPeriodBucket_(),
-      previous: createPeriodBucket_(),
+      current: createPeriodBucket_(deptOnly),
+      previous: createPeriodBucket_(deptOnly),
       currentLabel: currentMonth,
       previousLabel: previousMonth
     },
     weekly: {
-      current: createPeriodBucket_(),
-      previous: createPeriodBucket_(),
+      current: createPeriodBucket_(deptOnly),
+      previous: createPeriodBucket_(deptOnly),
       currentLabel: currentWeek,
       previousLabel: previousWeek
     }
@@ -1448,11 +1449,12 @@ function findHeaderIndex_(headerIndex, name) {
 /**
 期間別集計バケットを作成する。
 */
-function createPeriodBucket_() {
+function createPeriodBucket_(deptOnly) {
   return {
     deptMap: {},
     personMap: {},
     approverMap: {},
+    deptOnly: !!deptOnly,
     totalImportCount: 0
   };
 }
@@ -1479,6 +1481,12 @@ function addPacketToPeriodBucket_(bucket, packet) {
     packet.nextDayApprove,
     packet.hasApproveDate
   );
+
+  // HTMLダッシュボードは部署集計だけを表示する。個人・承認者マップの生成を
+  // 省くことで、大量データを開く際のオブジェクト生成とメモリ使用量を抑える。
+  if (bucket.deptOnly) {
+    return;
+  }
 
   const personKey = [
     packet.category,
@@ -3883,7 +3891,12 @@ function getHtmlDashboardDataCore_() {
     };
   }
 
-  const allSummaries = buildMonthlyWeeklySummaryBundle_(accumInfo.rows, accumInfo.headers, settings);
+  const allSummaries = buildMonthlyWeeklySummaryBundle_(
+    accumInfo.rows,
+    accumInfo.headers,
+    settings,
+    { deptOnly: true }
+  );
   const weeklyStaff = buildDashboardCategoryPayload_(
     allSummaries.weekly.current.deptRows,
     allSummaries.weekly.previous.deptRows,
@@ -3894,9 +3907,6 @@ function getHtmlDashboardDataCore_() {
     allSummaries.weekly.previous.deptRows,
     TS_CONFIG.SALES_CATEGORY
   );
-
-  addWeeklyAnalysisPayload_(weeklyStaff, accumInfo.rows, accumInfo.headers, allSummaries.weekly.currentLabel, allSummaries.weekly.previousLabel);
-  addWeeklyAnalysisPayload_(weeklySales, accumInfo.rows, accumInfo.headers, allSummaries.weekly.currentLabel, allSummaries.weekly.previousLabel);
 
   return {
     ok: true,
@@ -3931,59 +3941,8 @@ function getHtmlDashboardDataCore_() {
 
 
 /**
-週次ダッシュボードに常時表示する部署別詳細を付与する。
-*/
-function addWeeklyAnalysisPayload_(categoryPayload, records, headers, currentWeekLabel, previousWeekLabel) {
-  if (!categoryPayload) return categoryPayload;
-
-  categoryPayload.weeklyAnalysis = buildWeeklyAnalysisMapForDetails_(
-    categoryPayload.details,
-    records,
-    headers,
-    currentWeekLabel
-  );
-  categoryPayload.previousWeeklyAnalysis = buildWeeklyAnalysisMapForDetails_(
-    categoryPayload.previousDetails,
-    records,
-    headers,
-    previousWeekLabel
-  );
-
-  return categoryPayload;
-}
-
-function buildWeeklyAnalysisMapForDetails_(details, records, headers, weekLabel) {
-  const result = {};
-  (details || []).forEach(detail => {
-    const deptName = detail && detail.deptName ? detail.deptName : '';
-    if (!deptName) return;
-
-    const summaryRow = [
-      deptName,
-      detail.category || '',
-      detail.count || 0,
-      Math.round(Number(detail.beforeApplyRate || 0) * Number(detail.count || 0)),
-      Math.round(Number(detail.beforeApproveRate || 0) * Number(detail.count || 0)),
-      0,
-      Math.max(Number(detail.count || 0) - Number(detail.notApprovedCount || 0), 0),
-      detail.beforeApplyRate || 0,
-      detail.beforeApproveRate || 0,
-      detail.nextDayApproveRate || 0,
-      detail.notApprovedCount || 0,
-      detail.alert || ''
-    ];
-
-    result[deptName] = {
-      analysisText: buildDeptWeeklyAnalysisText_(summaryRow, weekLabel),
-      detailRows: buildDeptWeeklyDetailRows_(records, deptName, weekLabel, headers)
-    };
-  });
-  return result;
-}
-
-/**
 HTMLダッシュボードの部署別週次分析データを返す。
-既存の取込データと週次集計を再利用し、集計ロジック自体は変更しない。
+部署をクリックした時だけ明細を作成し、初期表示を軽量に保つ。
 */
 function getDeptWeeklyAnalysisData(deptName, weekStartDate, periodLabel) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
